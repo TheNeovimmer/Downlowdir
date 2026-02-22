@@ -2,6 +2,12 @@
 
 <div align="center">
 
+```
+   ▶ downlowdir
+   ─────────────────────────────────────────
+   The IDM alternative for developers
+```
+
 *A CLI download manager that just works.*
 
 [![npm version](https://img.shields.io/npm/v/downlowdir.svg)](https://www.npmjs.com/package/downlowdir)
@@ -12,408 +18,114 @@
 
 ---
 
-## what is this?
+## why?
 
-You know how frustrating it is when:
-- Downloads fail halfway through
-- You can't resume that 2GB file
-- YouTube videos need some sketchy website
-- Your browser's download manager is... basic
-- You need specific video quality but can't find it
-- Batch downloading is a nightmare
-
-**downlowdir** fixes all of that. It's a full-featured command-line download manager built for developers who want speed, reliability, and zero nonsense.
-
----
-
-## features
-
-**Multi-threaded downloads**
-Split files across 8+ threads. Download faster.
-
-**Resume support**
-Ctrl+C won't kill your progress. Resume anytime.
-
-**Quality selection**
-Pick video quality with file sizes shown. No guessing.
-
-**100+ video sites**
-YouTube, Twitch, Vimeo, Twitter, TikTok, Instagram, Facebook, and more.
-
-**Batch downloads**
-Download hundreds of files from a list. Concurrent support.
-
-**Speed limiting**
-Cap your bandwidth when needed.
-
-**Proxy support**
-HTTP, HTTPS, SOCKS5 - whatever you need.
-
-**Custom headers**
-API downloads, authentication, whatever you need.
-
-**Cookie support**
-Download age-restricted or private videos.
-
-**Clean interface**
-One command. No config files required.
-
----
-
-## installation
-
-```bash
-npm install -g downlowdir
-```
-
-That's it. Now you have `dld` command.
+Modern browsers and generic fetch tools often struggle with high-bandwidth utilization and stateful recovery for multi-gigabyte files. **downlowdir** provides a robust, developer-first solution: an industrial-grade engine featuring multi-threaded chunking and native media extraction, optimized for terminal-centric workflows.
 
 ---
 
 ## quick start
 
+Deploy locally in seconds:
+
 ```bash
-# Just run it - interactive mode
+npm install -g downlowdir
+# Launch the interactive manager
 dld
 ```
 
-That opens a clean menu. Pick what you want, paste a URL, done.
+---
+
+## core engine architecture
+
+`downlowdir` is built on a state-aware coordination layer that manages the lifecycle of shared system resources and network throughput.
+
+### 1. multi-threaded chunking
+
+When a URL is ingested, the engine calculates the file's `Content-Length` and partitions it into `N` concurrent segments (where `N` is your thread count). Each segment initiates an independent HTTP/TCP connection using `Range` headers to maximize bandwidth utilization.
+
+### 2. state management & durability
+
+Every download transition is tracked in a local state machine (backed by MD5-hashed JSON pointers).
+
+- **Auto-Resume**: If a process is killed or network drops, `downlowdir` reads the last byte position for each chunk and resumes exactly where it left off.
+- **Atomic Merging**: Only after all segments pass integrity checks are they concatenated into the final binary.
+
+### 3. streaming extraction
+
+For media sites, the engine bootstraps a managed `yt-dlp` environment, handling quality negotiation and metadata extraction before handing off the stream to the internal downloader.
 
 ---
 
-## usage
+## advanced usage patterns
 
-### download files
+### performance tuning
+
+| Scenario              | Strategy              | Recommendation                |
+| :-------------------- | :-------------------- | :---------------------------- |
+| **High Latency**      | Increase thread count | `-t 16` or `-t 32`            |
+| **Bandwidth Capping** | Limit ingress speed   | `-l 500` (KB/s)               |
+| **Shared Network**    | Lower concurrency     | `-c 2` (Concurrent downloads) |
+
+### developer & server-side flows
 
 ```bash
-# Auto-detects and downloads with 8 threads
-dld https://example.com/large-file.zip
+# Authenticated S3/Private API pulls
+dld https://api.service.com/data -H "Authorization: Bearer $(cmd_to_get_token)"
 
-# Specify output location
-dld https://example.com/file.zip -o ~/Downloads
+# Headless server downloads (Zero-prompt)
+dld <url> -y -o /var/www/assets/
 
-# Use 16 threads for faster downloads
-dld https://example.com/file.zip -t 16
-
-# Limit speed to 500 KB/s
-dld https://example.com/file.zip -l 500
-
-# Use proxy
-dld https://example.com/file.zip -p socks5://127.0.0.1:1080
-
-# Custom headers (for API downloads)
-dld https://api.example.com/file -H "Authorization: Bearer token123"
-```
-
-### download from youtube
-
-```bash
-# Interactive - pick quality with file sizes shown
-dld "https://youtube.com/watch?v=dQw4w9WgXcQ"
-
-# Audio only - extracts to MP3
-dld "https://youtube.com/watch?v=dQw4w9WgXcQ" -f audio
-
-# Best quality (auto)
-dld "https://youtube.com/watch?v=dQw4w9WgXcQ" -f best
-
-# Specific quality by format ID
-dld "https://youtube.com/watch?v=dQw4w9WgXcQ" -q 137+140
-
-# Skip prompts
-dld "https://youtube.com/watch?v=dQw4w9WgXcQ" -f audio -y
-
-# Age-restricted videos (cookies from browser)
-dld "https://youtube.com/watch?v=..." -c cookies.txt
-```
-
-### download from other sites
-
-```bash
-# Twitch clips/VODs
-dld "https://twitch.tv/clip/..."
-
-# Vimeo
-dld "https://vimeo.com/..."
-
-# Twitter/X videos
-dld "https://twitter.com/user/status/..."
-dld "https://x.com/user/status/..."
-
-# TikTok
-dld "https://tiktok.com/@user/video/..."
-
-# Instagram reels/posts
-dld "https://instagram.com/reel/..."
-
-# Facebook videos
-dld "https://facebook.com/watch/..."
-```
-
-### batch downloads
-
-Create a file `urls.txt`:
-```
-# Comments start with #
-https://youtube.com/watch?v=abc123
-https://example.com/file1.zip
-https://example.com/file2.zip
-```
-
-Then run:
-```bash
-# Download all with 3 concurrent
-dld batch urls.txt -o ./downloads -c 3
-
-# Or interactively
-dld
-# Select "Batch download from file"
-```
-
-### manage downloads
-
-```bash
-# View download queue
-dld queue
-
-# List paused downloads
-dld resume
-
-# Resume specific download
-dld resume a1b2c3d4
-
-# Clear all paused downloads
-dld clear
-
-# Clear specific one
-dld clear a1b2c3d4
-```
-
-### configure defaults
-
-```bash
-dld config
-```
-
-Sets:
-- Default threads
-- Output directory
-- Speed limit
-- Proxy URL
-- Concurrent downloads
-
----
-
-## options
-
-| Flag | Description |
-|------|-------------|
-| `-o, --output <path>` | Where to save files |
-| `-t, --threads <n>` | Parallel connections (default: 8) |
-| `-f, --format <type>` | Video: `video`, `audio`, `best` |
-| `-q, --quality <id>` | Specific format ID (e.g., `137+140`) |
-| `-l, --limit <kbps>` | Speed limit in KB/s |
-| `-p, --proxy <url>` | Proxy URL (HTTP/SOCKS5) |
-| `-H, --header <h>` | Custom header (can use multiple) |
-| `-c, --cookies <file>` | Cookies file for video sites |
-| `-y, --yes` | Skip all prompts |
-
----
-
-## commands
-
-| Command | What it does |
-|---------|--------------|
-| `dld [url]` | Download file or video |
-| `dld batch <file>` | Batch download from file |
-| `dld resume [id]` | Resume paused download |
-| `dld queue` | Show download queue |
-| `dld config` | Set default preferences |
-| `dld clear [id]` | Remove paused downloads |
-
----
-
-## quality selection
-
-When downloading videos interactively, you'll see:
-
-```
-? Select video quality: (Use arrow keys)
-❯ 1920x1080 60fps - mp4 (125.4 MB)
-  1920x1080 30fps - mp4 (89.2 MB)
-  1280x720 30fps - mp4 (45.1 MB)
-  854x480 30fps - mp4 (22.3 MB)
-  640x360 30fps - mp4 (12.1 MB)
-  audio only - m4a (3.2 MB)
-```
-
-No more guessing file sizes!
-
----
-
-## how it works
-
-```
-┌─────────────────────────────────────────────────────┐
-│                    downlowdir                       │
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│   Input URL                                         │
-│      │                                              │
-│      ▼                                              │
-│   ┌─────────────┐                                   │
-│   │   Detect    │── Video ──▶ yt-dlp handler       │
-│   │   Type      │   Site                            │
-│   └─────────────┘                                   │
-│      │                                              │
-│      ▼ Regular file                                 │
-│   ┌─────────────┐                                   │
-│   │   Split     │── Divide into chunks             │
-│   │   Chunks    │                                   │
-│   └─────────────┘                                   │
-│      │                                              │
-│      ▼                                              │
-│   ┌─────────────┐                                   │
-│   │  Multi-     │── 8 parallel connections         │
-│   │  Thread     │                                   │
-│   └─────────────┘                                   │
-│      │                                              │
-│      ▼                                              │
-│   ┌─────────────┐                                   │
-│   │   Merge     │── Combine to final file          │
-│   └─────────────┘                                   │
-│                                                     │
-└─────────────────────────────────────────────────────┘
+# Piping through SOCKS5 for scraping/privacy
+dld <url> -p socks5://username:password@proxy.internal:1080
 ```
 
 ---
 
-## why i built this
+## technical reference (CLI)
 
-Honestly? I got tired of:
+### parameters
 
-1. **Browser downloads** - One connection, no resume, basic UI
-2. **IDM** - Windows only, expensive, bloated, no CLI
-3. **wget/curl** - Great but no parallel downloads by default
-4. **YouTube sites** - Every site has ads, limits, or breaks
-5. **Quality selection** - No easy way to see file sizes before downloading
-6. **Batch downloads** - No good CLI tool for downloading multiple files
+- `-o, --output <path>`: Target destination. If a directory is provided, filename is inferred.
+- `-t, --threads <n>`: Parallel segments. Default: `8`. Max limited only by system file descriptors.
+- `-f, --format <type>`: Media extraction mode: `video`, `audio`, or `best`.
+- `-q, --quality <id>`: Specific format override for advanced media extraction.
+- `-l, --limit <kbps>`: Throttling bandwidth per download task.
+- `-p, --proxy <url>`: Proxied connection string (supports HTTP/HTTPS/SOCKS5).
+- `-H, --header <h>`: Custom HTTP headers (repeatable for multiple headers).
+- `-c, --cookies <file>`: Netscape-compliant cookie file for authenticated sessions.
+- `-y, --yes`: Automated mode. Bypasses all confirmation prompts.
 
-I wanted something that:
-- Works on any OS with Node.js
-- Downloads anything (files, videos from 100+ sites)
-- Resumes broken downloads
-- Shows quality options with file sizes
-- Downloads multiple files concurrently
-- Supports proxies and custom headers
-- Shows clean progress
-- Doesn't need a GUI
+### sub-commands
 
-So I built it.
-
----
-
-## technical details
-
-**Built with:**
-- TypeScript
-- Commander.js (CLI framework)
-- Axios (HTTP client)
-- yt-dlp (video backend - supports 100+ sites)
-- cli-progress (progress bars)
-- inquirer (interactive prompts)
-
-**Where stuff lives:**
-```
-~/.downlowdir/
-├── config.json     # Your settings
-├── temp/           # Download chunks
-└── bin/            # yt-dlp binary
-```
-
-**Download state files:**
-- `.json` files track partial downloads
-- Resume reads state and continues from byte position
-- Clean up automatically on completion
+- `batch <file>`: Mass ingest URLs from a text/manifest file.
+- `resume [id]`: Restart a specific partial download by its UID.
+- `queue`: Real-time status of current and pending tasks.
+- `config`: Global preference management (Default threads, paths, etc.).
+- `clear [id]`: Purge temporary state and partial chunks.
 
 ---
 
-## requirements
+## security & privacy
 
-- Node.js 18 or higher
-- npm
-
-For video downloads, yt-dlp is auto-downloaded on first use (~10MB).
-
----
-
-## troubleshooting
-
-**"EISDIR error"** - Fixed in latest version. Update: `npm update -g downlowdir`
-
-**"yt-dlp not found"** - Run once, it downloads automatically. Check `~/.downlowdir/bin/`
-
-**"Slow downloads"** - Increase threads: `dld <url> -t 16`
-
-**"Permission denied"** - On Unix, run: `chmod +x ~/.downlowdir/bin/yt-dlp`
-
-**"Video unavailable"** - Try with cookies: `dld <url> -c cookies.txt`
-
-**"Proxy not working"** - Make sure to include protocol: `http://`, `socks5://`
-
----
-
-## examples
-
-```bash
-# Download YouTube playlist video in 1080p
-dld "https://youtube.com/watch?v=..." -o ~/Videos
-
-# Download Twitch VOD
-dld "https://twitch.tv/videos/..." -f video
-
-# Batch download with 5 concurrent
-dld batch urls.txt -o ./downloads -c 5
-
-# Download with proxy and speed limit
-dld https://example.com/file.zip -p socks5://127.0.0.1:1080 -l 1000
-
-# Download private file with auth header
-dld https://api.example.com/file -H "Authorization: Bearer token"
-
-# Download Instagram reel
-dld "https://instagram.com/reel/..."
-
-# Download Twitter video
-dld "https://x.com/user/status/..."
-```
+- **Local First**: All metadata, state files, and binaries reside in `~/.downlowdir/`.
+- **No Telemetry**: We do not track what you download. No external pings are made unless required by the target URL.
+- **State Integrity**: Temporary chunks are hashed and managed in a dedicated `temp/` sub-directory to prevent filename collisions.
 
 ---
 
 ## contributing
 
-Found a bug? Have an idea?
+We welcome PRs from senior engineers looking to optimize our threading model or extend site support.
 
-1. Fork it
-2. Create your feature branch (`git checkout -b feature/amazing`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing`)
-5. Open a Pull Request
-
----
-
-## license
-
-MIT - Use it however you want.
+1. Fork and branch from `main`.
+2. Ensure `npm run lint` and `npm test` pass.
+3. Keep logic atomic; document any changes to the chunking algorithm.
 
 ---
 
 <div align="center">
 
-```
-Built with coffee and frustration by @TheNeovimmer
-```
-
-*If this helped you, consider giving it a ⭐*
+_Engineered by [@TheNeovimmer](https://github.com/TheNeovimmer) for the terminal faithful._
 
 </div>
