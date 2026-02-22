@@ -1,12 +1,6 @@
-# downlowdir
+# Downlowdir
 
 <div align="center">
-
-```
-   ▶ downlowdir
-   ─────────────────────────────────────────
-   The IDM alternative for developers
-```
 
 *A CLI download manager that just works.*
 
