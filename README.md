@@ -2,13 +2,13 @@
 
 <div align="center">
 
-```
-   ▶ downlowdir
+```text
+   ▶ dld --info
    ─────────────────────────────────────────
-   The IDM alternative for developers
+   The high-performance CLI download engine.
 ```
 
-*A CLI download manager that just works.*
+_Architected for speed. Engineered for reliability. The developer's choice._
 
 [![npm version](https://img.shields.io/npm/v/downlowdir.svg)](https://www.npmjs.com/package/downlowdir)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
