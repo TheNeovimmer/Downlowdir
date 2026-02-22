@@ -1,0 +1,32 @@
+import { EventEmitter } from 'events';
+import type { DownloadOptions, DownloadTask, Config } from './types';
+export declare class Downloader extends EventEmitter {
+    private task;
+    private config;
+    private abortControllers;
+    private stateFile;
+    private state;
+    private speedInterval;
+    private lastDownloaded;
+    private paused;
+    constructor(options: DownloadOptions, config: Config);
+    private generateId;
+    private extractFilename;
+    private getFilenameFromUrl;
+    getTask(): DownloadTask;
+    start(): Promise<void>;
+    private getContentLength;
+    private initializeChunks;
+    private loadState;
+    private saveState;
+    private downloadChunks;
+    private downloadChunk;
+    private startSpeedMonitor;
+    private stopSpeedMonitor;
+    private updateProgress;
+    private mergeChunks;
+    pause(): Promise<void>;
+    resume(): Promise<void>;
+    cancel(): Promise<void>;
+    private cleanup;
+}
