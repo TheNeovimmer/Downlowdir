@@ -4,8 +4,9 @@
 
 ```text
    ▶ dld --info
-   ─────────────────────────────────────────
+   ──────────────────────────────────────────
    The high-performance CLI download engine.
+   Status: [STABLE] | Optimized: Node.js 18+
 ```
 
 _Architected for speed. Engineered for reliability. The developer's choice._
@@ -18,13 +19,13 @@ _Architected for speed. Engineered for reliability. The developer's choice._
 
 ---
 
-## why?
+## ⚡ why?
 
-Modern browsers and generic fetch tools often struggle with high-bandwidth utilization and stateful recovery for multi-gigabyte files. **downlowdir** provides a robust, developer-first solution: an industrial-grade engine featuring multi-threaded chunking and native media extraction, optimized for terminal-centric workflows.
+Modern browsers and generic fetch tools often struggle with high-bandwidth utilization and stateful recovery for multi-gigabyte files. **Downlowdir** provides a robust, developer-first solution: an industrial-grade engine featuring multi-threaded chunking and native media extraction, optimized for terminal-centric workflows.
 
 ---
 
-## quick start
+## 🚀 quick start
 
 Deploy locally in seconds:
 
@@ -36,9 +37,9 @@ dld
 
 ---
 
-## core engine architecture
+## 🛠️ core engine architecture
 
-`downlowdir` is built on a state-aware coordination layer that manages the lifecycle of shared system resources and network throughput.
+`Downlowdir` is built on a state-aware coordination layer that manages the lifecycle of shared system resources and network throughput.
 
 ### 1. multi-threaded chunking
 
@@ -48,7 +49,7 @@ When a URL is ingested, the engine calculates the file's `Content-Length` and pa
 
 Every download transition is tracked in a local state machine (backed by MD5-hashed JSON pointers).
 
-- **Auto-Resume**: If a process is killed or network drops, `downlowdir` reads the last byte position for each chunk and resumes exactly where it left off.
+- **Auto-Resume**: If a process is killed or network drops, `Downlowdir` reads the last byte position for each chunk and resumes exactly where it left off.
 - **Atomic Merging**: Only after all segments pass integrity checks are they concatenated into the final binary.
 
 ### 3. streaming extraction
@@ -57,7 +58,28 @@ For media sites, the engine bootstraps a managed `yt-dlp` environment, handling 
 
 ---
 
-## advanced usage patterns
+## 📊 how it works
+
+> [!NOTE]
+> For the curious: `Downlowdir` acts as a coordination layer. For regular files, it manages chunking and parallel HTTP connections. For media sites, it interfaces with a managed `yt-dlp` binary to handle extraction and merging.
+
+```mermaid
+graph TD
+    classDef pro fill:#1a1b26,stroke:#7aa2f7,stroke-width:2px,color:#c0caf5;
+    classDef start fill:#7aa2f7,stroke:#1a1b26,color:#1a1b26;
+
+    A[URL Input]:::start --> B{Detect Type}:::pro
+    B -- Regular File --> C[Multi-threaded Chunking]:::pro
+    B -- Media Site --> D[yt-dlp Handler]:::pro
+    C --> E[Concurrent Downloads]:::pro
+    D --> E
+    E --> F[Checksum/Merge]:::pro
+    F --> G[Final File]:::start
+```
+
+---
+
+## ⚙️ advanced usage patterns
 
 ### performance tuning
 
@@ -66,6 +88,9 @@ For media sites, the engine bootstraps a managed `yt-dlp` environment, handling 
 | **High Latency**      | Increase thread count | `-t 16` or `-t 32`            |
 | **Bandwidth Capping** | Limit ingress speed   | `-l 500` (KB/s)               |
 | **Shared Network**    | Lower concurrency     | `-c 2` (Concurrent downloads) |
+
+> [!TIP]
+> Increasing threads beyond 32 often yields diminishing returns due to TCP congestion control and system I/O overhead. Start with `16` and scale based on your specific network pipe.
 
 ### developer & server-side flows
 
@@ -82,7 +107,7 @@ dld <url> -p socks5://username:password@proxy.internal:1080
 
 ---
 
-## technical reference (CLI)
+## 📖 technical reference (CLI)
 
 ### parameters
 
@@ -106,7 +131,7 @@ dld <url> -p socks5://username:password@proxy.internal:1080
 
 ---
 
-## security & privacy
+## 🛡️ security & privacy
 
 - **Local First**: All metadata, state files, and binaries reside in `~/.downlowdir/`.
 - **No Telemetry**: We do not track what you download. No external pings are made unless required by the target URL.
@@ -114,7 +139,7 @@ dld <url> -p socks5://username:password@proxy.internal:1080
 
 ---
 
-## contributing
+## 🤝 contributing
 
 We welcome PRs from senior engineers looking to optimize our threading model or extend site support.
 
