@@ -50,6 +50,7 @@ const history_1 = require("./history");
 const scheduler_1 = require("./scheduler");
 const categories_1 = require("./categories");
 const notifications_1 = require("./notifications");
+const navigation_1 = require("./navigation");
 const utils_1 = require("./utils");
 const types_1 = require("./types");
 const printBanner = () => {
@@ -1306,6 +1307,23 @@ program
         console.log(chalk_1.default.gray(`  Expected: ${hash}`));
         console.log(chalk_1.default.gray(`  Actual:   ${actual}`));
     }
+});
+program
+    .command('ui')
+    .description('Launch interactive TUI navigation')
+    .action(async () => {
+    await (0, navigation_1.startNavigation)(() => {
+        console.log(chalk_1.default.gray('  Exited TUI mode'));
+    });
+});
+program
+    .command('interactive')
+    .alias('i')
+    .description('Launch interactive TUI navigation (same as ui)')
+    .action(async () => {
+    await (0, navigation_1.startNavigation)(() => {
+        console.log(chalk_1.default.gray('  Exited TUI mode'));
+    });
 });
 program.parseAsync();
 //# sourceMappingURL=index.js.map

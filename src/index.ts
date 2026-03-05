@@ -13,6 +13,7 @@ import { getHistoryManager } from './history';
 import { getScheduler } from './scheduler';
 import { getCategoryManager } from './categories';
 import { getNotificationManager } from './notifications';
+import { startNavigation } from './navigation';
 import {
   formatBytes,
   formatSpeed,
@@ -1436,6 +1437,25 @@ program
       console.log(chalk.gray(`  Expected: ${hash}`));
       console.log(chalk.gray(`  Actual:   ${actual}`));
     }
+  });
+
+program
+  .command('ui')
+  .description('Launch interactive TUI navigation')
+  .action(async () => {
+    await startNavigation(() => {
+      console.log(chalk.gray('  Exited TUI mode'));
+    });
+  });
+
+program
+  .command('interactive')
+  .alias('i')
+  .description('Launch interactive TUI navigation (same as ui)')
+  .action(async () => {
+    await startNavigation(() => {
+      console.log(chalk.gray('  Exited TUI mode'));
+    });
   });
 
 program.parseAsync();
