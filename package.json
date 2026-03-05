@@ -1,6 +1,6 @@
 {
   "name": "downlowdir",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "CLI download manager with multi-threading, resume support, and full IDM alternative features",
   "main": "dist/index.js",
   "bin": {
