@@ -1,29 +1,29 @@
-# Downlowdir
+# downlowdir
 
-A high-performance CLI download manager that gives you full control over your downloads. Think of it as a modern replacement for IDM, but for the terminal.
+A powerful **CLI download manager** that gives you full control over your downloads. Think of it as a modern replacement for IDM, but built for the terminal.
 
 ---
 
-## What is this?
+## Why I Built This
 
-I built downlowdir because I needed something that could handle large files reliably. Browser downloads always seemed to fail at the worst moments, and I wanted something that could resume from where it left off without losing progress.
+I got tired of browser downloads failing at 95% on large files. Lost progress, starting over, the frustration. So I built `downlowdir` — a tool that splits files into chunks, downloads them in parallel, and **resumes from where it stopped** when things go wrong.
 
-This tool does exactly that. It splits your downloads into multiple chunks and downloads them in parallel. If something goes wrong, you can pick up right where you stopped. No more starting over from zero.
-
-It also handles video sites. YouTube, Twitch, Vimeo, Twitter - you name it. It uses yt-dlp under the hood to grab videos in whatever quality you prefer.
+It also handles video sites. YouTube, Twitch, Vimeo, Twitter — you name it. Uses `yt-dlp` under the hood to grab videos in whatever quality you prefer.
 
 ---
 
 ## Installation
 
+### 1. Install the CLI
+
 ```bash
 npm install -g downlowdir
 ```
 
-That's it. You might need to install yt-dlp separately if you plan on downloading videos:
+### 2. Install yt-dlp (optional, for video downloads)
 
 ```bash
-# On Linux/macOS
+# Linux/macOS - curl method
 sudo curl -L https://yt-dl.org/downloads/latest/yt-dlp -o /usr/local/bin/yt-dlp
 sudo chmod a+rx /usr/local/bin/yt-dlp
 
@@ -31,111 +31,228 @@ sudo chmod a+rx /usr/local/bin/yt-dlp
 pip install yt-dlp
 ```
 
-Make sure yt-dlp is in your PATH. Downlowdir will look for it automatically.
+Make sure `yt-dlp` is in your PATH. The CLI will find it automatically.
 
 ---
 
-## Quick Examples
+## Quick Start
 
-Download a file with 16 threads:
 ```bash
+# Download a file with 16 threads
 dld https://example.com/large-file.zip -t 16
-```
 
-Download a YouTube video in best quality:
-```bash
+# Download YouTube video in best quality
 dld https://youtube.com/watch?v=xxxxx -f best
-```
 
-Download only the audio:
-```bash
+# Download only the audio (MP3)
 dld https://youtube.com/watch?v=xxxxx -f audio
-```
 
-Download an entire playlist:
-```bash
+# Download an entire playlist
 dld playlist https://youtube.com/playlist?list=xxxxx
-```
 
-Schedule a download for later:
-```bash
+# Schedule a download for later
 dld schedule https://example.com/file.zip -t "2024-12-25 09:00"
-```
 
-Check your download history:
-```bash
+# View your download history
 dld history
 ```
 
 ---
 
-## The Problem It Solves
+## How It Works
 
-Let me paint a picture. You're downloading a 10GB file. It's at 95%. Your wifi hiccups. The connection drops. Your browser says "download failed" and offers you nothing but a restart button.
+**The chunking system** is the magic. When you start a download, it asks the server how big the file is, then splits it into parts — typically 8 parts by default (you can crank this up to 32+).
 
-This tool doesn't work that way. It saves your progress constantly. When you resume, it continues from exactly where it left off. The chunks that already downloaded stay downloaded.
+Each chunk downloads independently in parallel. They all write to temporary files. When every chunk finishes, they merge into the final file. If something fails mid-download, those temporary files stay there. When you resume, it only downloads what hasn't finished yet.
 
-This is particularly useful for:
-- Large ISO files
-- Video collections
-- Patch files for games
-- Anything that takes more than a few minutes to download
+For videos, it delegates to `yt-dlp` which handles all the complexity of extracting streams, muxing audio and video, and picking the right quality.
 
 ---
 
-## How It Works
+## Interactive TUI Mode
 
-The magic is in the chunking system. When you start a download, it asks the server how big the file is. Then it splits that file into parts - typically 8 parts by default, but you can crank that up to 32 or more.
+Launch the interactive terminal UI for a visual download manager experience:
 
-Each chunk downloads independently. They all write to temporary files. When every chunk finishes, they merge into the final file. If something fails mid-download, those temporary files stay there. When you resume, it only downloads what hasn't finished yet.
+```bash
+dld ui
+# or
+dld interactive
+# or simply
+dld
+```
 
-For videos, it delegates to yt-dlp which handles all the complexity of extracting streams, muxing audio and video, and picking the right quality.
+**TUI Features:**
+- Visual download progress with progress bars
+- Download queue management
+- Category-based organization
+- Keyboard navigation
+- Real-time statistics
 
 ---
 
 ## Commands Reference
 
-Here's what you can do:
-
 ### Basic Downloads
+
 ```bash
 dld <url>              # Download anything
 dld <url> -o /path     # Specify output directory
-dld <url> -t 16       # Use 16 threads
-dld <url> -l 500      # Limit speed to 500KB/s
-dld <url> -y          # Skip "are you sure?" prompts
+dld <url> -t 16        # Use 16 threads (default: 8)
+dld <url> -l 500       # Limit speed to 500KB/s
+dld <url> -y           # Skip confirmation prompts
+dld <url> -p http://proxy:8080  # Use proxy
+dld <url> -H "User-Agent: custom"  # Add custom headers
 ```
 
 ### Video Downloads
+
 ```bash
-dld <url> -f video    # Ask for quality
-dld <url> -f audio    # MP3 only
-dld <url> -f best    # Best available
-dld <url> -s en      # Download English subtitles
+dld <url> -f video     # Ask for quality selection
+dld <url> -f audio     # Audio only (MP3)
+dld <url> -f best      # Best available quality
+dld <url> -s en        # Download English subtitles
+dld <url> -c cookies.txt  # Use cookies for authenticated downloads
 ```
 
-### Playlists
+### Playlist Downloads
+
 ```bash
-dld playlist <url>           # Download playlist
-dld playlist <url> --start 1 --end 10  # First 10 only
-dld playlist <url> --shuffle           # Random order
+dld playlist <url>              # Download entire playlist
+dld playlist <url> -f audio     # Audio only
+dld playlist <url> --start 1 --end 10   # First 10 videos only
+dld playlist <url> --shuffle    # Download in random order
+dld playlist <url> --reverse    # Download in reverse
 ```
 
-### Management
+### Management Commands
+
 ```bash
 dld resume              # Resume paused downloads
-dld queue              # See what's in queue
-dld history           # View past downloads
-dld stats             # Download statistics
-dld categories        # Manage categories
-dld clear             # Clear paused downloads
+dld resume <id>        # Resume specific download by ID
+dld queue              # Show download queue
+dld history            # View download history
+dld stats              # Show download statistics
+dld categories         # Manage download categories
+dld config             # Configure settings
+dld clear              # Clear all paused downloads
+dld clear <id>         # Clear specific paused download
+dld verify <file> <hash>  # Verify file checksum
+dld schedule           # Schedule a download (interactive)
+dld schedule <url> -t "2024-12-25 09:00"  # Schedule from CLI
+dld batch <file>       # Batch download from file
+dld ui                 # Launch interactive TUI
+```
+
+---
+
+## Tips & Tricks
+
+### Batch Downloading
+
+Create a file with URLs (one per line, lines starting with `#` are ignored):
+
+```bash
+# urls.txt
+https://example.com/file1.zip
+https://example.com/file2.zip
+https://youtube.com/watch?v=video1
+
+# Download all
+dld batch urls.txt -o ~/Downloads
+```
+
+### Resume Failed Downloads
+
+If your download was interrupted, just run:
+
+```bash
+dld resume
+```
+
+Select the download you want to resume. It will pick up exactly where it left off.
+
+### Speed Limiting
+
+Prevent `dld` from hogging your bandwidth:
+
+```bash
+dld https://example.com/large-file.zip -l 500  # 500 KB/s limit
+```
+
+### Categories
+
+Organize downloads by automatically categorizing based on URL patterns:
+
+```bash
+dld categories
+```
+
+Add categories with custom URL patterns — downloads matching those patterns will be automatically assigned.
+
+### Verify Downloads
+
+Check file integrity after download:
+
+```bash
+dld verify /path/to/file.iso abc123...
+```
+
+---
+
+## Troubleshooting
+
+### "command not found: dld"
+
+Make sure the npm global bin directory is in your PATH:
+
+```bash
+# Add to your ~/.bashrc or ~/.zshrc
+export PATH="$PATH:$(npm root -g)"
+```
+
+Then restart your terminal or run `source ~/.bashrc`.
+
+### yt-dlp not found
+
+Install yt-dlp:
+
+```bash
+pip install yt-dlp
+# or
+sudo curl -L https://yt-dl.org/downloads/latest/yt-dlp -o /usr/local/bin/yt-dlp
+sudo chmod a+rx /usr/local/bin/yt-dlp
+```
+
+### Downloads fail with "416 Range Not Satisfiable"
+
+The server doesn't support chunked downloads. This is rare but can happen with some CDNs. You can try reducing threads:
+
+```bash
+dld <url> -t 1
+```
+
+### Permission denied errors
+
+Make sure your output directory is writable:
+
+```bash
+dld <url> -o ~/Downloads  # Use a directory you have write access to
+```
+
+### Videos require authentication
+
+For private videos or age-restricted content, export your browser cookies and use them:
+
+```bash
+# Export cookies from browser extension (e.g., "Get cookies.txt LOCALLY")
+dld <url> -c cookies.txt
 ```
 
 ---
 
 ## Configuration
 
-The config lives in `~/.downlowdir/config.json`. Here's what you can tweak:
+The config file lives at `~/.downlowdir/config.json`. Here's what you can customize:
 
 ```json
 {
@@ -147,35 +264,24 @@ The config lives in `~/.downlowdir/config.json`. Here's what you can tweak:
   "concurrentDownloads": 3,
   "notifications": true,
   "historyEnabled": true,
-  "maxHistoryItems": 1000
+  "maxHistoryItems": 1000,
+  "tempDir": "~/.downlowdir/temp"
 }
 ```
 
-You can edit this directly or run `dld config` for an interactive setup.
+Edit directly or run:
 
----
-
-## History and Statistics
-
-Every download gets logged. You can see what you've downloaded, when, and how big the files were. This builds up over time so you always have a record of your downloads.
-
-Run `dld stats` to see totals - how many completed, how many failed, total data downloaded. Useful if you're curious about your download habits.
-
----
-
-## Why No GUI?
-
-Because GUIs are slow. They introduce lag between what you want and what happens. Terminal tools work at the speed of thought.
-
-Plus, you can script this. Pipe URLs into it. Schedule downloads. Chain commands. Do things that would require clicking around a hundred times in a GUI.
+```bash
+dld config
+```
 
 ---
 
 ## Requirements
 
-- Node.js 18 or higher
-- yt-dlp (optional, for video downloads)
-- Unix-like shell (works on Linux and macOS, Windows with WSL)
+- **Node.js** 18 or higher
+- **yt-dlp** (optional, for video downloads)
+- Unix-like shell (Linux, macOS, or Windows with WSL)
 
 ---
 
@@ -191,4 +297,4 @@ That's it. That's the whole tool.
 
 Made by [TheNeovimmer](https://github.com/TheNeovimmer)
 
-If you find bugs or have suggestions, open an issue on GitHub. Contributions are welcome.
+Found a bug or have a suggestion? Open an issue on GitHub. Contributions are welcome.
