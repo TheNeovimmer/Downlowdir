@@ -174,77 +174,123 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
   let formatSelection: { type: string; quality?: string; subtitles?: string } = { type: options.format as string || 'video' };
 
   if (!options.yes && process.stdin.isTTY) {
-    const formatType = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'type',
-        message: 'Select format type',
-        choices: [
-          { name: 'Video - Choose quality', value: 'video' },
-          { name: 'Audio only - MP3', value: 'audio' },
-          { name: 'Best quality (auto)', value: 'best' },
-        ],
-        default: options.format || 'video',
-      },
-    ]);
-
-    formatSelection.type = formatType.type;
-
-    if (formatType.type === 'video') {
-      const qualityChoices = info.qualities.map((q: VideoQuality) => {
-        const size = q.filesize || q.filesizeApprox;
-        const sizeStr = size ? ` (${formatBytes(size)})` : '';
-        const fpsStr = q.fps ? ` ${q.fps}fps` : '';
-        return {
-          name: `${q.resolution}${fpsStr} - ${q.ext}${sizeStr}`,
-          value: q.formatId,
-        };
-      });
-
-      const qualityAnswer = await inquirer.prompt([
+    let formatSelectionDone = false;
+    
+    while (!formatSelectionDone) {
+      const formatType = await inquirer.prompt([
         {
           type: 'list',
-          name: 'quality',
-          message: 'Select video quality',
-          choices: qualityChoices,
-          pageSize: 10,
+          name: 'type',
+          message: 'Select format type',
+          choices: [
+            { name: 'Video - Choose quality', value: 'video' },
+            { name: 'Audio only - MP3', value: 'audio' },
+            { name: 'Best quality (auto)', value: 'best' },
+            { name: '< Back', value: '__back__' },
+          ],
+          default: options.format || 'video',
         },
       ]);
-      formatSelection.quality = qualityAnswer.quality;
-    }
 
-    if (info.subtitles && info.subtitles.length > 0) {
-      const subAnswer = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'downloadSubs',
-          message: 'Download subtitles?',
-          default: false,
-        },
-      ]);
-      if (subAnswer.downloadSubs) {
-        const langChoices = info.subtitles.map((s: { lang: string }) => s.lang);
-        const langAnswer = await inquirer.prompt([
+      if (formatType.type === '__back__') {
+        formatSelectionDone = true;
+        return;
+      }
+
+      formatSelection.type = formatType.type;
+
+      if (formatType.type === 'video') {
+        let qualityDone = false;
+        while (!qualityDone) {
+          const qualityChoices = [
+            ...info.qualities.map((q: VideoQuality) => {
+              const size = q.filesize || q.filesizeApprox;
+              const sizeStr = size ? ` (${formatBytes(size)})` : '';
+              const fpsStr = q.fps ? ` ${q.fps}fps` : '';
+              return {
+                name: `${q.resolution}${fpsStr} - ${q.ext}${sizeStr}`,
+                value: q.formatId,
+              };
+            }),
+            { name: '< Back to format selection', value: '__back__' },
+          ];
+
+          const qualityAnswer = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'quality',
+              message: 'Select video quality',
+              choices: qualityChoices,
+              pageSize: 10,
+            },
+          ]);
+
+          if (qualityAnswer.quality === '__back__') {
+            qualityDone = true;
+            continue;
+          }
+
+          formatSelection.quality = qualityAnswer.quality;
+          qualityDone = true;
+        }
+      }
+
+      let subDone = false;
+      while (!subDone) {
+        if (!info.subtitles || info.subtitles.length === 0) {
+          break;
+        }
+
+        const subChoices = [
+          ...info.subtitles.map((s: { lang: string }) => s.lang),
+          { name: 'No subtitles', value: '__none__' },
+          { name: '< Back to quality selection', value: '__back__' },
+        ];
+
+        const subAnswer = await inquirer.prompt([
           {
             type: 'list',
-            name: 'lang',
-            message: 'Select subtitle language',
-            choices: langChoices,
+            name: 'downloadSubs',
+            message: 'Download subtitles?',
+            choices: subChoices,
           },
         ]);
-        formatSelection.subtitles = langAnswer.lang;
-      }
-    }
 
-    const outputAnswer = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'output',
-        message: 'Output directory',
-        default: options.output || config.defaultOutput,
-      },
-    ]);
-    options.output = outputAnswer.output;
+        if (subAnswer.downloadSubs === '__back__') {
+          if (formatSelection.type === 'video') {
+            subDone = false;
+            continue;
+          }
+          break;
+        }
+
+        if (subAnswer.downloadSubs !== '__none__') {
+          formatSelection.subtitles = subAnswer.downloadSubs;
+        }
+        subDone = true;
+      }
+
+      let outputDone = false;
+      while (!outputDone) {
+        const outputAnswer = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'output',
+            message: 'Output directory',
+            default: options.output || config.defaultOutput,
+          },
+        ]);
+
+        if (!outputAnswer.output || outputAnswer.output.trim() === '') {
+          continue;
+        }
+
+        options.output = outputAnswer.output;
+        outputDone = true;
+      }
+
+      formatSelectionDone = true;
+    }
   }
 
   console.log();
@@ -338,52 +384,105 @@ async function downloadPlaylist(url: string, options: Record<string, unknown>, s
   let outputDir = options.output as string || config.defaultOutput;
 
   if (!options.yes && process.stdin.isTTY) {
-    const formatType = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'type',
-        message: 'Select format type',
-        choices: [
-          { name: 'Video - Choose quality', value: 'video' },
-          { name: 'Audio only', value: 'audio' },
-          { name: 'Best quality', value: 'best' },
-        ],
-        default: 'video',
-      },
-    ]);
+    let playlistDone = false;
+    
+    while (!playlistDone) {
+      const formatType = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'type',
+          message: 'Select format type',
+          choices: [
+            { name: 'Video - Choose quality', value: 'video' },
+            { name: 'Audio only', value: 'audio' },
+            { name: 'Best quality', value: 'best' },
+          ],
+          default: 'video',
+        },
+      ]);
 
-    const rangeAnswer = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'start',
-        message: 'Start index (1 for first, empty for all)',
-        default: '1',
-      },
-      {
-        type: 'input',
-        name: 'end',
-        message: 'End index (empty for all)',
-        default: '',
-      },
-    ]);
+      let rangeDone = false;
+      while (!rangeDone) {
+        const rangeAnswer = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'start',
+            message: 'Start index (1 for first, empty for all)',
+            default: '1',
+          },
+          {
+            type: 'input',
+            name: 'end',
+            message: 'End index (empty for all)',
+            default: '',
+          },
+        ]);
 
-    playlistOptions = {
-      format: formatType.type as 'video' | 'audio' | 'best',
-      start: rangeAnswer.start ? parseInt(rangeAnswer.start, 10) : undefined,
-      end: rangeAnswer.end ? parseInt(rangeAnswer.end, 10) : undefined,
-      reverse: options['playlist-reverse'] as boolean,
-      shuffle: options['playlist-shuffle'] as boolean,
-    };
+        if (rangeAnswer.start && isNaN(parseInt(rangeAnswer.start, 10))) {
+          console.log(chalk.yellow('  Please enter a valid number or leave empty'));
+          continue;
+        }
 
-    const outputAnswer = await inquirer.prompt([
-      {
-        type: 'input',
-        name: 'output',
-        message: 'Output directory',
-        default: outputDir,
-      },
-    ]);
-    outputDir = outputAnswer.output;
+        playlistOptions = {
+          format: formatType.type as 'video' | 'audio' | 'best',
+          start: rangeAnswer.start ? parseInt(rangeAnswer.start, 10) : undefined,
+          end: rangeAnswer.end ? parseInt(rangeAnswer.end, 10) : undefined,
+          reverse: options['playlist-reverse'] as boolean,
+          shuffle: options['playlist-shuffle'] as boolean,
+        };
+        rangeDone = true;
+      }
+
+      let outputDone = false;
+      while (!outputDone) {
+        const outputAnswer = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'output',
+            message: 'Output directory',
+            default: outputDir,
+          },
+        ]);
+
+        if (!outputAnswer.output || outputAnswer.output.trim() === '') {
+          continue;
+        }
+
+        outputDir = outputAnswer.output;
+        outputDone = true;
+      }
+
+      const confirmAnswer = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirm',
+          message: 'Start download?',
+          default: true,
+        },
+      ]);
+
+      if (!confirmAnswer.confirm) {
+        const rechooseAnswer = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: 'What would you like to do?',
+            choices: [
+              { name: 'Change options and download', value: 'retry' },
+              { name: 'Cancel download', value: 'cancel' },
+            ],
+          },
+        ]);
+
+        if (rechooseAnswer.action === 'cancel') {
+          console.log(chalk.gray('  Download cancelled'));
+          return;
+        }
+        continue;
+      }
+
+      playlistDone = true;
+    }
   } else {
     playlistOptions = {
       format: options.format as 'video' | 'audio' | 'best' || 'video',

@@ -32,13 +32,15 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationManager = void 0;
 exports.getNotificationManager = getNotificationManager;
 exports.setNotificationEnabled = setNotificationEnabled;
-const notifier = __importStar(require("node-notifier"));
+const node_notifier_1 = __importDefault(require("node-notifier"));
 const path = __importStar(require("path"));
-const fs = __importStar(require("fs-extra"));
 class NotificationManager {
     constructor(enabled = true) {
         this.enabled = true;
@@ -52,14 +54,17 @@ class NotificationManager {
         if (!this.enabled)
             return;
         return new Promise((resolve) => {
-            notifier.notify({
-                title: options.title,
-                message: options.message,
-                icon: options.icon || this.getDefaultIcon(),
-                sound: options.sound !== false,
-                wait: options.wait || false,
-                appID: 'downlowdir',
-            }, () => resolve());
+            try {
+                node_notifier_1.default.notify({
+                    title: options.title,
+                    message: options.message,
+                    sound: options.sound !== false,
+                    wait: options.wait || false,
+                }, () => resolve());
+            }
+            catch {
+                resolve();
+            }
         });
     }
     async notifyDownloadComplete(filename, outputPath, size) {
@@ -89,12 +94,6 @@ class NotificationManager {
             message: `Now downloading: ${filename}`,
             sound: false,
         });
-    }
-    getDefaultIcon() {
-        if (fs.existsSync(this.iconPath)) {
-            return this.iconPath;
-        }
-        return undefined;
     }
 }
 exports.NotificationManager = NotificationManager;

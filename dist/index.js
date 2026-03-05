@@ -196,72 +196,107 @@ async function downloadVideo(url, options, site) {
     ].filter(Boolean));
     let formatSelection = { type: options.format || 'video' };
     if (!options.yes && process.stdin.isTTY) {
-        const formatType = await inquirer_1.default.prompt([
-            {
-                type: 'list',
-                name: 'type',
-                message: 'Select format type',
-                choices: [
-                    { name: 'Video - Choose quality', value: 'video' },
-                    { name: 'Audio only - MP3', value: 'audio' },
-                    { name: 'Best quality (auto)', value: 'best' },
-                ],
-                default: options.format || 'video',
-            },
-        ]);
-        formatSelection.type = formatType.type;
-        if (formatType.type === 'video') {
-            const qualityChoices = info.qualities.map((q) => {
-                const size = q.filesize || q.filesizeApprox;
-                const sizeStr = size ? ` (${(0, utils_1.formatBytes)(size)})` : '';
-                const fpsStr = q.fps ? ` ${q.fps}fps` : '';
-                return {
-                    name: `${q.resolution}${fpsStr} - ${q.ext}${sizeStr}`,
-                    value: q.formatId,
-                };
-            });
-            const qualityAnswer = await inquirer_1.default.prompt([
+        let formatSelectionDone = false;
+        while (!formatSelectionDone) {
+            const formatType = await inquirer_1.default.prompt([
                 {
                     type: 'list',
-                    name: 'quality',
-                    message: 'Select video quality',
-                    choices: qualityChoices,
-                    pageSize: 10,
+                    name: 'type',
+                    message: 'Select format type',
+                    choices: [
+                        { name: 'Video - Choose quality', value: 'video' },
+                        { name: 'Audio only - MP3', value: 'audio' },
+                        { name: 'Best quality (auto)', value: 'best' },
+                        { name: '< Back', value: '__back__' },
+                    ],
+                    default: options.format || 'video',
                 },
             ]);
-            formatSelection.quality = qualityAnswer.quality;
-        }
-        if (info.subtitles && info.subtitles.length > 0) {
-            const subAnswer = await inquirer_1.default.prompt([
-                {
-                    type: 'confirm',
-                    name: 'downloadSubs',
-                    message: 'Download subtitles?',
-                    default: false,
-                },
-            ]);
-            if (subAnswer.downloadSubs) {
-                const langChoices = info.subtitles.map((s) => s.lang);
-                const langAnswer = await inquirer_1.default.prompt([
+            if (formatType.type === '__back__') {
+                formatSelectionDone = true;
+                return;
+            }
+            formatSelection.type = formatType.type;
+            if (formatType.type === 'video') {
+                let qualityDone = false;
+                while (!qualityDone) {
+                    const qualityChoices = [
+                        ...info.qualities.map((q) => {
+                            const size = q.filesize || q.filesizeApprox;
+                            const sizeStr = size ? ` (${(0, utils_1.formatBytes)(size)})` : '';
+                            const fpsStr = q.fps ? ` ${q.fps}fps` : '';
+                            return {
+                                name: `${q.resolution}${fpsStr} - ${q.ext}${sizeStr}`,
+                                value: q.formatId,
+                            };
+                        }),
+                        { name: '< Back to format selection', value: '__back__' },
+                    ];
+                    const qualityAnswer = await inquirer_1.default.prompt([
+                        {
+                            type: 'list',
+                            name: 'quality',
+                            message: 'Select video quality',
+                            choices: qualityChoices,
+                            pageSize: 10,
+                        },
+                    ]);
+                    if (qualityAnswer.quality === '__back__') {
+                        qualityDone = true;
+                        continue;
+                    }
+                    formatSelection.quality = qualityAnswer.quality;
+                    qualityDone = true;
+                }
+            }
+            let subDone = false;
+            while (!subDone) {
+                if (!info.subtitles || info.subtitles.length === 0) {
+                    break;
+                }
+                const subChoices = [
+                    ...info.subtitles.map((s) => s.lang),
+                    { name: 'No subtitles', value: '__none__' },
+                    { name: '< Back to quality selection', value: '__back__' },
+                ];
+                const subAnswer = await inquirer_1.default.prompt([
                     {
                         type: 'list',
-                        name: 'lang',
-                        message: 'Select subtitle language',
-                        choices: langChoices,
+                        name: 'downloadSubs',
+                        message: 'Download subtitles?',
+                        choices: subChoices,
                     },
                 ]);
-                formatSelection.subtitles = langAnswer.lang;
+                if (subAnswer.downloadSubs === '__back__') {
+                    if (formatSelection.type === 'video') {
+                        subDone = false;
+                        continue;
+                    }
+                    break;
+                }
+                if (subAnswer.downloadSubs !== '__none__') {
+                    formatSelection.subtitles = subAnswer.downloadSubs;
+                }
+                subDone = true;
             }
+            let outputDone = false;
+            while (!outputDone) {
+                const outputAnswer = await inquirer_1.default.prompt([
+                    {
+                        type: 'input',
+                        name: 'output',
+                        message: 'Output directory',
+                        default: options.output || config.defaultOutput,
+                    },
+                ]);
+                if (!outputAnswer.output || outputAnswer.output.trim() === '') {
+                    continue;
+                }
+                options.output = outputAnswer.output;
+                outputDone = true;
+            }
+            formatSelectionDone = true;
         }
-        const outputAnswer = await inquirer_1.default.prompt([
-            {
-                type: 'input',
-                name: 'output',
-                message: 'Output directory',
-                default: options.output || config.defaultOutput,
-            },
-        ]);
-        options.output = outputAnswer.output;
     }
     console.log();
     console.log(chalk_1.default.gray(`  Downloading: ${info.title}`));
@@ -343,49 +378,94 @@ async function downloadPlaylist(url, options, site) {
     let playlistOptions = {};
     let outputDir = options.output || config.defaultOutput;
     if (!options.yes && process.stdin.isTTY) {
-        const formatType = await inquirer_1.default.prompt([
-            {
-                type: 'list',
-                name: 'type',
-                message: 'Select format type',
-                choices: [
-                    { name: 'Video - Choose quality', value: 'video' },
-                    { name: 'Audio only', value: 'audio' },
-                    { name: 'Best quality', value: 'best' },
-                ],
-                default: 'video',
-            },
-        ]);
-        const rangeAnswer = await inquirer_1.default.prompt([
-            {
-                type: 'input',
-                name: 'start',
-                message: 'Start index (1 for first, empty for all)',
-                default: '1',
-            },
-            {
-                type: 'input',
-                name: 'end',
-                message: 'End index (empty for all)',
-                default: '',
-            },
-        ]);
-        playlistOptions = {
-            format: formatType.type,
-            start: rangeAnswer.start ? parseInt(rangeAnswer.start, 10) : undefined,
-            end: rangeAnswer.end ? parseInt(rangeAnswer.end, 10) : undefined,
-            reverse: options['playlist-reverse'],
-            shuffle: options['playlist-shuffle'],
-        };
-        const outputAnswer = await inquirer_1.default.prompt([
-            {
-                type: 'input',
-                name: 'output',
-                message: 'Output directory',
-                default: outputDir,
-            },
-        ]);
-        outputDir = outputAnswer.output;
+        let playlistDone = false;
+        while (!playlistDone) {
+            const formatType = await inquirer_1.default.prompt([
+                {
+                    type: 'list',
+                    name: 'type',
+                    message: 'Select format type',
+                    choices: [
+                        { name: 'Video - Choose quality', value: 'video' },
+                        { name: 'Audio only', value: 'audio' },
+                        { name: 'Best quality', value: 'best' },
+                    ],
+                    default: 'video',
+                },
+            ]);
+            let rangeDone = false;
+            while (!rangeDone) {
+                const rangeAnswer = await inquirer_1.default.prompt([
+                    {
+                        type: 'input',
+                        name: 'start',
+                        message: 'Start index (1 for first, empty for all)',
+                        default: '1',
+                    },
+                    {
+                        type: 'input',
+                        name: 'end',
+                        message: 'End index (empty for all)',
+                        default: '',
+                    },
+                ]);
+                if (rangeAnswer.start && isNaN(parseInt(rangeAnswer.start, 10))) {
+                    console.log(chalk_1.default.yellow('  Please enter a valid number or leave empty'));
+                    continue;
+                }
+                playlistOptions = {
+                    format: formatType.type,
+                    start: rangeAnswer.start ? parseInt(rangeAnswer.start, 10) : undefined,
+                    end: rangeAnswer.end ? parseInt(rangeAnswer.end, 10) : undefined,
+                    reverse: options['playlist-reverse'],
+                    shuffle: options['playlist-shuffle'],
+                };
+                rangeDone = true;
+            }
+            let outputDone = false;
+            while (!outputDone) {
+                const outputAnswer = await inquirer_1.default.prompt([
+                    {
+                        type: 'input',
+                        name: 'output',
+                        message: 'Output directory',
+                        default: outputDir,
+                    },
+                ]);
+                if (!outputAnswer.output || outputAnswer.output.trim() === '') {
+                    continue;
+                }
+                outputDir = outputAnswer.output;
+                outputDone = true;
+            }
+            const confirmAnswer = await inquirer_1.default.prompt([
+                {
+                    type: 'confirm',
+                    name: 'confirm',
+                    message: 'Start download?',
+                    default: true,
+                },
+            ]);
+            if (!confirmAnswer.confirm) {
+                const rechooseAnswer = await inquirer_1.default.prompt([
+                    {
+                        type: 'list',
+                        name: 'action',
+                        message: 'What would you like to do?',
+                        choices: [
+                            { name: 'Change options and download', value: 'retry' },
+                            { name: 'Cancel download', value: 'cancel' },
+                        ],
+                    },
+                ]);
+                if (rechooseAnswer.action === 'cancel') {
+                    console.log(chalk_1.default.gray('  Download cancelled'));
+                    return;
+                }
+                continue;
+            }
+            playlistDone = true;
+        }
     }
     else {
         playlistOptions = {

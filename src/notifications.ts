@@ -1,7 +1,6 @@
-import * as notifier from 'node-notifier';
+import notifier from 'node-notifier';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import * as os from 'os';
 
 export interface NotificationOptions {
   title: string;
@@ -28,17 +27,19 @@ export class NotificationManager {
     if (!this.enabled) return;
 
     return new Promise((resolve) => {
-      notifier.notify(
-        {
-          title: options.title,
-          message: options.message,
-          icon: options.icon || this.getDefaultIcon(),
-          sound: options.sound !== false,
-          wait: options.wait || false,
-          appID: 'downlowdir',
-        },
-        () => resolve()
-      );
+      try {
+        notifier.notify(
+          {
+            title: options.title,
+            message: options.message,
+            sound: options.sound !== false,
+            wait: options.wait || false,
+          },
+          () => resolve()
+        );
+      } catch {
+        resolve();
+      }
     });
   }
 
@@ -72,13 +73,6 @@ export class NotificationManager {
       message: `Now downloading: ${filename}`,
       sound: false,
     });
-  }
-
-  private getDefaultIcon(): string | undefined {
-    if (fs.existsSync(this.iconPath)) {
-      return this.iconPath;
-    }
-    return undefined;
   }
 }
 

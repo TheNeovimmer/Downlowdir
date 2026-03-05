@@ -15,7 +15,6 @@ export declare class NotificationManager {
     notifyDownloadFailed(filename: string, error: string): Promise<void>;
     notifyBatchComplete(completed: number, failed: number): Promise<void>;
     notifyScheduledDownload(filename: string): Promise<void>;
-    private getDefaultIcon;
 }
 export declare function getNotificationManager(enabled?: boolean): NotificationManager;
 export declare function setNotificationEnabled(enabled: boolean): void;
