@@ -34,15 +34,13 @@ const printBanner = (): void => {
 };
 
 const printBox = (title: string, content: string[]): void => {
-  const width = Math.max(title.length + 4, ...content.map(l => l.length + 4), 50);
-  const line = '─'.repeat(width - 2);
-  console.log(chalk.cyan(`╭${line}╮`));
-  console.log(chalk.cyan('│') + chalk.bold.white(` ${title}`) + ' '.repeat(width - title.length - 4) + chalk.cyan('│'));
-  console.log(chalk.cyan('│') + ' '.repeat(width - 2) + chalk.cyan('│'));
+  console.log();
+  console.log(chalk.bold.white(title));
+  console.log(chalk.gray('─'.repeat(title.length + 5)));
   for (const l of content) {
-    console.log(chalk.cyan('│') + ' ' + l + ' '.repeat(width - l.length - 3) + chalk.cyan('│'));
+    console.log('  ' + l);
   }
-  console.log(chalk.cyan(`╰${line}╯`));
+  console.log();
 };
 
 const detectVideoSite = (url: string): VideoSite => {

@@ -59,15 +59,13 @@ const printBanner = () => {
     console.log();
 };
 const printBox = (title, content) => {
-    const width = Math.max(title.length + 4, ...content.map(l => l.length + 4), 50);
-    const line = '─'.repeat(width - 2);
-    console.log(chalk_1.default.cyan(`╭${line}╮`));
-    console.log(chalk_1.default.cyan('│') + chalk_1.default.bold.white(` ${title}`) + ' '.repeat(width - title.length - 4) + chalk_1.default.cyan('│'));
-    console.log(chalk_1.default.cyan('│') + ' '.repeat(width - 2) + chalk_1.default.cyan('│'));
+    console.log();
+    console.log(chalk_1.default.bold.white(title));
+    console.log(chalk_1.default.gray('─'.repeat(title.length + 5)));
     for (const l of content) {
-        console.log(chalk_1.default.cyan('│') + ' ' + l + ' '.repeat(width - l.length - 3) + chalk_1.default.cyan('│'));
+        console.log('  ' + l);
     }
-    console.log(chalk_1.default.cyan(`╰${line}╯`));
+    console.log();
 };
 const detectVideoSite = (url) => {
     for (const [site, regex] of Object.entries(types_1.VIDEO_SITES)) {
