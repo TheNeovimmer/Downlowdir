@@ -10,6 +10,7 @@ var DownloadStatus;
     DownloadStatus["Completed"] = "completed";
     DownloadStatus["Failed"] = "failed";
     DownloadStatus["Cancelled"] = "cancelled";
+    DownloadStatus["Scheduled"] = "scheduled";
 })(DownloadStatus || (exports.DownloadStatus = DownloadStatus = {}));
 exports.VIDEO_SITES = {
     youtube: /(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)/,

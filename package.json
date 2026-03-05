@@ -1,7 +1,7 @@
 {
   "name": "downlowdir",
-  "version": "1.0.0",
-  "description": "CLI download manager with multi-threading and resume support",
+  "version": "1.2.0",
+  "description": "CLI download manager with multi-threading, resume support, and full IDM alternative features",
   "main": "dist/index.js",
   "bin": {
     "downlowdir": "./dist/index.js",
@@ -16,9 +16,12 @@
     "download",
     "cli",
     "manager",
-    "multi-thread"
+    "multi-thread",
+    "idm",
+    "youtube",
+    "playlist"
   ],
-  "author": "",
+  "author": "TheNeovimmer",
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
@@ -28,7 +31,10 @@
     "commander": "^14.0.3",
     "fs-extra": "^11.3.3",
     "inquirer": "^9.3.8",
-    "yt-dlp-wrap": "^2.3.12"
+    "yt-dlp-wrap": "^2.3.12",
+    "node-notifier": "^10.0.1",
+    "crypto": "^1.0.1",
+    "clipboardy": "^4.0.0"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",

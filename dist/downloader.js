@@ -41,6 +41,7 @@ const crypto = __importStar(require("crypto"));
 const events_1 = require("events");
 const types_1 = require("./types");
 const config_1 = require("./config");
+const utils_1 = require("./utils");
 class Downloader extends events_1.EventEmitter {
     constructor(options, config) {
         super();
@@ -50,10 +51,16 @@ class Downloader extends events_1.EventEmitter {
         this.speedInterval = null;
         this.lastDownloaded = 0;
         this.paused = false;
+        this.retries = 0;
+        this.maxRetries = 3;
+        this.retryDelay = 1000;
+        this.verifyChecksum = null;
         this.config = config;
+        this.maxRetries = config.maxRetries || 3;
+        this.retryDelay = config.retryDelay || 1000;
         let outputPath = options.output || this.getFilenameFromUrl(options.url);
         if (options.output && !path.extname(options.output)) {
-            const filename = this.extractFilename(options.url);
+            const filename = options.filename || this.extractFilename(options.url);
             outputPath = path.join(options.output, filename);
         }
         this.task = {
@@ -70,16 +77,18 @@ class Downloader extends events_1.EventEmitter {
             downloadedSize: 0,
             speed: 0,
             startTime: 0,
+            retries: 0,
         };
     }
     generateId(url) {
-        return crypto.createHash('md5').update(url).digest('hex').substring(0, 8);
+        return crypto.createHash('md5').update(url + Date.now()).digest('hex').substring(0, 8);
     }
     extractFilename(url) {
         try {
             const urlObj = new URL(url);
             const pathname = urlObj.pathname;
-            return pathname.split('/').pop() || 'download';
+            const filename = pathname.split('/').pop() || 'download';
+            return decodeURIComponent(filename);
         }
         catch {
             return 'download';
@@ -91,23 +100,19 @@ class Downloader extends events_1.EventEmitter {
     getTask() {
         return { ...this.task };
     }
+    setVerifyChecksum(type, expected) {
+        this.verifyChecksum = { type, expected };
+    }
     async start() {
         this.task.status = types_1.DownloadStatus.Downloading;
         this.task.startTime = Date.now();
         this.emit('start', this.task);
         try {
-            const tempDir = await (0, config_1.ensureTempDir)();
-            this.stateFile = path.join(tempDir, `${this.task.id}.json`);
-            const contentLength = await this.getContentLength();
-            this.task.totalSize = contentLength;
-            if (this.task.resume && await fs.pathExists(this.stateFile)) {
-                await this.loadState();
-            }
-            else {
-                await this.initializeChunks(contentLength);
-            }
-            await this.downloadChunks();
+            await this.downloadWithRetry();
             if (!this.paused) {
+                if (this.verifyChecksum) {
+                    await this.verifyFileChecksum();
+                }
                 await this.mergeChunks();
                 await this.cleanup();
                 this.task.status = types_1.DownloadStatus.Completed;
@@ -125,6 +130,42 @@ class Downloader extends events_1.EventEmitter {
         finally {
             this.stopSpeedMonitor();
         }
+    }
+    async downloadWithRetry() {
+        while (this.retries <= this.maxRetries) {
+            try {
+                await this.performDownload();
+                return;
+            }
+            catch (error) {
+                this.retries++;
+                this.task.retries = this.retries;
+                if (this.retries <= this.maxRetries && !this.paused) {
+                    const delay = this.retryDelay * Math.pow(2, this.retries - 1);
+                    this.emit('retry', { task: this.task, attempt: this.retries, delay });
+                    await this.sleep(delay);
+                }
+                else {
+                    throw error;
+                }
+            }
+        }
+    }
+    async performDownload() {
+        const tempDir = await (0, config_1.ensureTempDir)();
+        this.stateFile = path.join(tempDir, `${this.task.id}.json`);
+        const contentLength = await this.getContentLength();
+        this.task.totalSize = contentLength;
+        if (this.task.resume && await fs.pathExists(this.stateFile)) {
+            await this.loadState();
+        }
+        else {
+            await this.initializeChunks(contentLength);
+        }
+        await this.downloadChunks();
+    }
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
     }
     async getContentLength() {
         const response = await axios.default.head(this.task.url, {
@@ -182,7 +223,8 @@ class Downloader extends events_1.EventEmitter {
         await Promise.all(promises);
     }
     async downloadChunk(chunk, _index) {
-        if (chunk.downloaded >= (chunk.end - chunk.start + 1)) {
+        const chunkSize = chunk.end - chunk.start + 1;
+        if (chunk.downloaded >= chunkSize) {
             return;
         }
         const startByte = chunk.start + chunk.downloaded;
@@ -237,7 +279,9 @@ class Downloader extends events_1.EventEmitter {
             });
         }
         catch (error) {
-            if (!this.paused && !axios.default.isCancel(error)) {
+            if (!this.paused && axios.default.isCancel(error)) {
+            }
+            else if (!this.paused) {
                 throw error;
             }
         }
@@ -278,6 +322,20 @@ class Downloader extends events_1.EventEmitter {
             outputStream.end(() => resolve());
             outputStream.on('error', reject);
         });
+    }
+    async verifyFileChecksum() {
+        if (!this.verifyChecksum)
+            return;
+        const actual = await (0, utils_1.calculateChecksum)(this.task.output, this.verifyChecksum.type);
+        this.verifyChecksum.actual = actual;
+        this.verifyChecksum.verified = this.verifyChecksum.expected
+            ? actual === this.verifyChecksum.expected
+            : undefined;
+        this.task.checksum = this.verifyChecksum;
+        if (this.verifyChecksum.expected && actual !== this.verifyChecksum.expected) {
+            throw new Error(`Checksum verification failed: expected ${this.verifyChecksum.expected}, got ${actual}`);
+        }
+        this.emit('checksum', this.verifyChecksum);
     }
     async pause() {
         this.paused = true;

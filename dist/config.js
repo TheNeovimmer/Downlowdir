@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.loadConfig = loadConfig;
 exports.saveConfig = saveConfig;
 exports.ensureTempDir = ensureTempDir;
+exports.resetConfig = resetConfig;
+exports.getConfigPath = getConfigPath;
 const fs = __importStar(require("fs-extra"));
 const path = __importStar(require("path"));
 const os = __importStar(require("os"));
@@ -50,6 +52,14 @@ const DEFAULT_CONFIG = {
     tempDir: path.join(os.homedir(), '.downlowdir', 'temp'),
     proxy: undefined,
     concurrentDownloads: 3,
+    notifications: true,
+    historyEnabled: true,
+    maxHistoryItems: 1000,
+    autoCleanup: false,
+    cleanupDays: 30,
+    defaultCategory: undefined,
+    startMinimized: false,
+    clipboardMonitor: false,
 };
 async function loadConfig() {
     try {
@@ -73,5 +83,13 @@ async function ensureTempDir() {
     const config = await loadConfig();
     await fs.ensureDir(config.tempDir);
     return config.tempDir;
+}
+async function resetConfig() {
+    await fs.ensureDir(path.dirname(CONFIG_FILE));
+    await fs.writeJson(CONFIG_FILE, DEFAULT_CONFIG, { spaces: 2 });
+    return DEFAULT_CONFIG;
+}
+function getConfigPath() {
+    return CONFIG_FILE;
 }
 //# sourceMappingURL=config.js.map

@@ -1,0 +1,32 @@
+export declare function sanitizeFilename(filename: string): string;
+export declare function generateId(url: string): string;
+export declare function formatBytes(bytes: number | undefined): string;
+export declare function formatSpeed(bytesPerSec: number): string;
+export declare function formatDuration(seconds: number): string;
+export declare function formatTime(date: Date): string;
+export declare function formatDate(date: Date): string;
+export declare function parseTime(timeStr: string): {
+    hours: number;
+    minutes: number;
+} | null;
+export declare function parseDate(dateStr: string): Date | null;
+export declare function isTimeInRange(time: string, start: string, end: string): boolean;
+export declare function matchUrlPattern(url: string, patterns: string[]): boolean;
+export declare function getFileExtension(filename: string): string;
+export declare function getMimeType(filename: string): string;
+export declare function calculateChecksum(filePath: string, algorithm?: 'md5' | 'sha256' | 'sha1'): Promise<string>;
+export declare function getCategoryFromUrl(url: string, categories: {
+    patterns: string[];
+    name: string;
+}[]): string | undefined;
+export declare function isVideoUrl(url: string): boolean;
+export declare function getVideoIdFromUrl(url: string): string | null;
+export declare function getPlaylistIdFromUrl(url: string): string | null;
+export declare function isPlaylistUrl(url: string): boolean;
+export declare function delay(ms: number): Promise<void>;
+export declare function clamp(value: number, min: number, max: number): number;
+export declare function getAvailableSpace(dirPath: string): number;
+export declare function ensureUniqueFilename(outputPath: string): string;
+export declare function parseUserAgent(): string;
+export declare function truncateString(str: string, maxLength: number): string;
+export declare function extractDomain(url: string): string;

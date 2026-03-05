@@ -9,12 +9,20 @@ export declare class Downloader extends EventEmitter {
     private speedInterval;
     private lastDownloaded;
     private paused;
+    private retries;
+    private maxRetries;
+    private retryDelay;
+    private verifyChecksum;
     constructor(options: DownloadOptions, config: Config);
     private generateId;
     private extractFilename;
     private getFilenameFromUrl;
     getTask(): DownloadTask;
+    setVerifyChecksum(type: 'md5' | 'sha256' | 'sha1', expected?: string): void;
     start(): Promise<void>;
+    private downloadWithRetry;
+    private performDownload;
+    private sleep;
     private getContentLength;
     private initializeChunks;
     private loadState;
@@ -25,6 +33,7 @@ export declare class Downloader extends EventEmitter {
     private stopSpeedMonitor;
     private updateProgress;
     private mergeChunks;
+    private verifyFileChecksum;
     pause(): Promise<void>;
     resume(): Promise<void>;
     cancel(): Promise<void>;

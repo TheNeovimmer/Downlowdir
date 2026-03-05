@@ -15,6 +15,14 @@ const DEFAULT_CONFIG: Config = {
   tempDir: path.join(os.homedir(), '.downlowdir', 'temp'),
   proxy: undefined,
   concurrentDownloads: 3,
+  notifications: true,
+  historyEnabled: true,
+  maxHistoryItems: 1000,
+  autoCleanup: false,
+  cleanupDays: 30,
+  defaultCategory: undefined,
+  startMinimized: false,
+  clipboardMonitor: false,
 };
 
 export async function loadConfig(): Promise<Config> {
@@ -40,4 +48,14 @@ export async function ensureTempDir(): Promise<string> {
   const config = await loadConfig();
   await fs.ensureDir(config.tempDir);
   return config.tempDir;
+}
+
+export async function resetConfig(): Promise<Config> {
+  await fs.ensureDir(path.dirname(CONFIG_FILE));
+  await fs.writeJson(CONFIG_FILE, DEFAULT_CONFIG, { spaces: 2 });
+  return DEFAULT_CONFIG;
+}
+
+export function getConfigPath(): string {
+  return CONFIG_FILE;
 }

@@ -9,31 +9,27 @@ import * as cliProgress from 'cli-progress';
 import { Downloader } from './downloader';
 import { YouTubeDownloader } from './youtube';
 import { loadConfig, saveConfig } from './config';
-import type { DownloadOptions, VideoQuality, VideoSite } from './types';
-import { VIDEO_SITES } from './types';
-
-const formatBytes = (bytes: number | undefined): string => {
-  if (!bytes || bytes === 0) return 'Unknown';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const formatSpeed = (bytesPerSec: number): string => formatBytes(bytesPerSec) + '/s';
-
-const formatDuration = (seconds: number): string => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
+import { getHistoryManager } from './history';
+import { getScheduler } from './scheduler';
+import { getCategoryManager } from './categories';
+import { getNotificationManager } from './notifications';
+import {
+  formatBytes,
+  formatSpeed,
+  formatDuration,
+  formatDate,
+  formatTime,
+  sanitizeFilename,
+  isPlaylistUrl,
+  isVideoUrl,
+} from './utils';
+import type { DownloadOptions, VideoQuality, VideoSite, PlaylistOptions, Category } from './types';
+import { VIDEO_SITES, DownloadStatus } from './types';
 
 const printBanner = (): void => {
   console.log();
   console.log(chalk.cyan.bold('  ▶ downlowdir'));
-  console.log(chalk.gray('  Fast multi-threaded downloader with video support'));
+  console.log(chalk.gray('  Advanced IDM alternative - Multi-threaded downloader'));
   console.log();
 };
 
@@ -58,16 +54,12 @@ const detectVideoSite = (url: string): VideoSite => {
   return 'other';
 };
 
-const isVideoUrl = (url: string): boolean => {
-  return detectVideoSite(url) !== 'other';
-};
-
 const program = new Command();
 
 program
   .name('dld')
-  .description('Fast downloader with video support')
-  .version('1.0.0')
+  .description('Advanced download manager - IDM alternative')
+  .version('1.1.0')
   .argument('[url]', 'URL to download')
   .option('-o, --output <path>', 'Output path')
   .option('-t, --threads <number>', 'Number of threads', '8')
@@ -78,6 +70,11 @@ program
   .option('-H, --header <header>', 'Custom header (key:value)', (v, p: string[]) => [...p, v], [] as string[])
   .option('-c, --cookies <file>', 'Cookies file for video sites')
   .option('-y, --yes', 'Skip confirmation prompts')
+  .option('-s, --subtitles <lang>', 'Download subtitles (language code)')
+  .option('--playlist-start <n>', 'Playlist start index')
+  .option('--playlist-end <n>', 'Playlist end index')
+  .option('--playlist-reverse', 'Download playlist in reverse order')
+  .option('--playlist-shuffle', 'Download playlist in random order')
   .action(async (url: string | undefined, options) => {
     printBanner();
     
@@ -97,10 +94,15 @@ program
           message: 'What would you like to do?',
           choices: [
             { name: 'Download a file/video', value: 'download' },
+            { name: 'Download playlist', value: 'playlist' },
             { name: 'Batch download from file', value: 'batch' },
+            { name: 'Schedule a download', value: 'schedule' },
+            { name: 'View download history', value: 'history' },
+            { name: 'View categories', value: 'categories' },
             { name: 'Resume paused downloads', value: 'resume' },
             { name: 'View download queue', value: 'queue' },
             { name: 'Configure settings', value: 'config' },
+            { name: 'View statistics', value: 'stats' },
             { name: 'Exit', value: 'exit' },
           ],
         },
@@ -111,7 +113,16 @@ program
       else if (answers.action === 'resume') await listPaused();
       else if (answers.action === 'queue') await showQueue();
       else if (answers.action === 'batch') await batchDownload();
-      else if (answers.action === 'download') {
+      else if (answers.action === 'history') await showHistory();
+      else if (answers.action === 'categories') await manageCategories();
+      else if (answers.action === 'schedule') await scheduleDownload();
+      else if (answers.action === 'stats') await showStats();
+      else if (answers.action === 'playlist') {
+        const urlAnswer = await inquirer.prompt([
+          { type: 'input', name: 'url', message: 'Enter playlist URL:', validate: (u) => u.length > 0 || 'URL required' },
+        ]);
+        url = urlAnswer.url;
+      } else if (answers.action === 'download') {
         const urlAnswer = await inquirer.prompt([
           { type: 'input', name: 'url', message: 'Enter URL:', validate: (u) => u.length > 0 || 'URL required' },
         ]);
@@ -122,14 +133,24 @@ program
     if (!url) return;
 
     const site = detectVideoSite(url);
+    const isPlaylist = isPlaylistUrl(url);
+    
     if (site !== 'other') {
-      await downloadVideo(url, options as Record<string, unknown>, site);
+      if (isPlaylist) {
+        await downloadPlaylist(url, options as Record<string, unknown>, site);
+      } else {
+        await downloadVideo(url, options as Record<string, unknown>, site);
+      }
     } else {
       await downloadFile(url, options as Record<string, unknown>);
     }
   });
 
 async function downloadVideo(url: string, options: Record<string, unknown>, site: VideoSite): Promise<void> {
+  const config = await loadConfig();
+  const notifier = getNotificationManager(config.notifications);
+  const history = getHistoryManager(config.maxHistoryItems, config.historyEnabled);
+  
   const yt = new YouTubeDownloader(options.proxy as string);
   
   console.log(chalk.gray(`  Fetching ${site} video info...`));
@@ -147,7 +168,10 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
     `${chalk.white('Duration:')} ${formatDuration(info.duration)}`,
     `${chalk.white('Views:')} ${info.viewCount.toLocaleString()}`,
     `${chalk.white('Site:')} ${site}`,
-  ]);
+    info.subtitles ? `${chalk.white('Subtitles:')} Available (${info.subtitles.length} languages)` : '',
+  ].filter(Boolean));
+
+  let formatSelection: { type: string; quality?: string; subtitles?: string } = { type: options.format as string || 'video' };
 
   if (!options.yes && process.stdin.isTTY) {
     const formatType = await inquirer.prompt([
@@ -163,6 +187,8 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
         default: options.format || 'video',
       },
     ]);
+
+    formatSelection.type = formatType.type;
 
     if (formatType.type === 'video') {
       const qualityChoices = info.qualities.map((q: VideoQuality) => {
@@ -184,9 +210,30 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
           pageSize: 10,
         },
       ]);
-      options.formatId = qualityAnswer.quality;
-    } else {
-      options.format = formatType.type;
+      formatSelection.quality = qualityAnswer.quality;
+    }
+
+    if (info.subtitles && info.subtitles.length > 0) {
+      const subAnswer = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'downloadSubs',
+          message: 'Download subtitles?',
+          default: false,
+        },
+      ]);
+      if (subAnswer.downloadSubs) {
+        const langChoices = info.subtitles.map((s: { lang: string }) => s.lang);
+        const langAnswer = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'lang',
+            message: 'Select subtitle language',
+            choices: langChoices,
+          },
+        ]);
+        formatSelection.subtitles = langAnswer.lang;
+      }
     }
 
     const outputAnswer = await inquirer.prompt([
@@ -194,7 +241,7 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
         type: 'input',
         name: 'output',
         message: 'Output directory',
-        default: options.output || process.cwd(),
+        default: options.output || config.defaultOutput,
       },
     ]);
     options.output = outputAnswer.output;
@@ -214,24 +261,179 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
 
   progressBar.start(100, 0, { speed: '0 B/s' });
 
+  const historyId = history.add({
+    url,
+    filename: info.title,
+    output: options.output as string,
+    size: 0,
+    status: DownloadStatus.Downloading,
+    site,
+  });
+
   yt.on('progress', (p: { progress: number; speed: number }) => {
     progressBar.update(p.progress, { speed: formatSpeed(p.speed) });
   });
 
   try {
-    await yt.download({
-      url,
-      output: options.output as string,
-      format: options.format as 'video' | 'audio' | 'best',
-      formatId: options.formatId as string,
-      proxy: options.proxy as string,
-      cookies: options.cookies as string,
-    });
+    if (formatSelection.subtitles) {
+      await yt.downloadWithSubtitles({
+        url,
+        output: options.output as string,
+        format: formatSelection.type as 'video' | 'audio' | 'best',
+        proxy: options.proxy as string,
+        cookies: options.cookies as string,
+      }, formatSelection.subtitles);
+    } else {
+      await yt.download({
+        url,
+        output: options.output as string,
+        format: formatSelection.type as 'video' | 'audio' | 'best',
+        formatId: formatSelection.quality,
+        proxy: options.proxy as string,
+        cookies: options.cookies as string,
+      });
+    }
+    
     progressBar.update(100);
     progressBar.stop();
     console.log();
     console.log(chalk.green('  Done!'));
     console.log();
+    
+    history.complete(historyId);
+    await notifier.notifyDownloadComplete(info.title, options.output as string, formatBytes(info.qualities[0]?.filesize));
+  } catch (err) {
+    progressBar.stop();
+    console.log();
+    console.log(chalk.red(`  Failed: ${err}`));
+    console.log();
+    
+    history.fail(historyId, err instanceof Error ? err.message : String(err));
+    await notifier.notifyDownloadFailed(info.title, err instanceof Error ? err.message : String(err));
+  }
+}
+
+async function downloadPlaylist(url: string, options: Record<string, unknown>, site: VideoSite): Promise<void> {
+  const config = await loadConfig();
+  const notifier = getNotificationManager(config.notifications);
+  const yt = new YouTubeDownloader(options.proxy as string);
+  
+  console.log(chalk.gray(`  Fetching playlist info...`));
+  
+  let playlistInfo;
+  try {
+    playlistInfo = await yt.getPlaylistInfo(url, options.proxy as string);
+  } catch (err) {
+    console.log(chalk.red(`  Failed to fetch playlist info: ${err}`));
+    return;
+  }
+
+  printBox('Playlist Info', [
+    `${chalk.white('Title:')} ${playlistInfo.title}`,
+    `${chalk.white('Channel:')} ${playlistInfo.channel}`,
+    `${chalk.white('Videos:')} ${playlistInfo.count}`,
+  ]);
+
+  let playlistOptions: PlaylistOptions = {};
+  let outputDir = options.output as string || config.defaultOutput;
+
+  if (!options.yes && process.stdin.isTTY) {
+    const formatType = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'type',
+        message: 'Select format type',
+        choices: [
+          { name: 'Video - Choose quality', value: 'video' },
+          { name: 'Audio only', value: 'audio' },
+          { name: 'Best quality', value: 'best' },
+        ],
+        default: 'video',
+      },
+    ]);
+
+    const rangeAnswer = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'start',
+        message: 'Start index (1 for first, empty for all)',
+        default: '1',
+      },
+      {
+        type: 'input',
+        name: 'end',
+        message: 'End index (empty for all)',
+        default: '',
+      },
+    ]);
+
+    playlistOptions = {
+      format: formatType.type as 'video' | 'audio' | 'best',
+      start: rangeAnswer.start ? parseInt(rangeAnswer.start, 10) : undefined,
+      end: rangeAnswer.end ? parseInt(rangeAnswer.end, 10) : undefined,
+      reverse: options['playlist-reverse'] as boolean,
+      shuffle: options['playlist-shuffle'] as boolean,
+    };
+
+    const outputAnswer = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'output',
+        message: 'Output directory',
+        default: outputDir,
+      },
+    ]);
+    outputDir = outputAnswer.output;
+  } else {
+    playlistOptions = {
+      format: options.format as 'video' | 'audio' | 'best' || 'video',
+      start: options['playlist-start'] ? parseInt(options['playlist-start'] as string, 10) : undefined,
+      end: options['playlist-end'] ? parseInt(options['playlist-end'] as string, 10) : undefined,
+      reverse: options['playlist-reverse'] as boolean,
+      shuffle: options['playlist-shuffle'] as boolean,
+    };
+  }
+
+  console.log();
+  console.log(chalk.gray(`  Downloading playlist: ${playlistInfo.title}`));
+  console.log();
+
+  const progressBar = new cliProgress.SingleBar({
+    format: `  ${chalk.cyan('|')}{bar}${chalk.cyan('|')} {percentage}% | Video {videoIndex}/{totalVideos} | {speed}`,
+    barCompleteChar: '=',
+    barIncompleteChar: '-',
+    barsize: 30,
+    hideCursor: true,
+  });
+
+  progressBar.start(100, 0, { videoIndex: 0, totalVideos: playlistInfo.count, speed: '0 B/s' });
+
+  yt.on('progress', (p: { progress: number; speed: number; videoIndex?: number; totalVideos?: number }) => {
+    progressBar.update(p.progress, { 
+      speed: formatSpeed(p.speed),
+      videoIndex: p.videoIndex || 0,
+      totalVideos: p.totalVideos || playlistInfo.count,
+    });
+  });
+
+  try {
+    const result = await yt.downloadPlaylist({
+      url,
+      output: outputDir,
+      format: playlistOptions.format,
+      proxy: options.proxy as string,
+      cookies: options.cookies as string,
+      playlist: playlistOptions,
+    });
+    
+    progressBar.update(100);
+    progressBar.stop();
+    console.log();
+    console.log(chalk.green(`  Done! Downloaded ${result.success} videos`));
+    if (result.failed > 0) console.log(chalk.red(`  Failed: ${result.failed}`));
+    console.log();
+    
+    await notifier.notifyBatchComplete(result.success, result.failed);
   } catch (err) {
     progressBar.stop();
     console.log();
@@ -242,6 +444,9 @@ async function downloadVideo(url: string, options: Record<string, unknown>, site
 
 async function downloadFile(url: string, options: Record<string, unknown>): Promise<void> {
   const config = await loadConfig();
+  const notifier = getNotificationManager(config.notifications);
+  const history = getHistoryManager(config.maxHistoryItems, config.historyEnabled);
+  const categoryManager = getCategoryManager();
 
   const headers: Record<string, string> = {};
   for (const h of (options.header as string[]) || []) {
@@ -250,6 +455,8 @@ async function downloadFile(url: string, options: Record<string, unknown>): Prom
       headers[key.trim()] = vals.join(':').trim();
     }
   }
+
+  const category = categoryManager.match(url);
 
   const downloadOptions: DownloadOptions = {
     url,
@@ -269,7 +476,17 @@ async function downloadFile(url: string, options: Record<string, unknown>): Prom
   console.log(chalk.gray(`  Output: ${task.output}`));
   if (options.limit) console.log(chalk.gray(`  Speed limit: ${options.limit} KB/s`));
   if (options.proxy) console.log(chalk.gray(`  Proxy: ${options.proxy}`));
+  if (category) console.log(chalk.gray(`  Category: ${category.name}`));
   console.log();
+
+  const historyId = history.add({
+    url,
+    filename: path.basename(task.output),
+    output: task.output,
+    size: 0,
+    status: DownloadStatus.Downloading,
+    category: category?.name,
+  });
 
   if (!options.yes && process.stdin.isTTY) {
     const confirm = await inquirer.prompt([
@@ -302,19 +519,25 @@ async function downloadFile(url: string, options: Record<string, unknown>): Prom
     });
   });
 
-  downloader.on('complete', (t) => {
+  downloader.on('complete', async (t) => {
     progressBar.stop();
     console.log();
     console.log(chalk.green('  Done!'));
     console.log(chalk.gray(`  Saved: ${t.output}`));
     console.log();
+    
+    history.complete(historyId, new Date(), t.checksum);
+    await notifier.notifyDownloadComplete(path.basename(t.output), path.dirname(t.output), formatBytes(t.totalSize));
   });
 
-  downloader.on('error', (_, err) => {
+  downloader.on('error', async (_, err) => {
     progressBar.stop();
     console.log();
     console.log(chalk.red(`  Failed: ${err}`));
     console.log();
+    
+    history.fail(historyId, err instanceof Error ? err.message : String(err));
+    await notifier.notifyDownloadFailed(path.basename(task.output), err instanceof Error ? err.message : String(err));
   });
 
   const handleInterrupt = async () => {
@@ -369,6 +592,9 @@ async function batchDownload(): Promise<void> {
   console.log(chalk.cyan(`  Found ${urls.length} URLs`));
   console.log();
 
+  const notifier = getNotificationManager(config.notifications);
+  const history = getHistoryManager(config.maxHistoryItems, config.historyEnabled);
+
   const multibar = new cliProgress.MultiBar({
     clearOnComplete: false,
     hideCursor: true,
@@ -393,23 +619,81 @@ async function batchDownload(): Promise<void> {
     const bar = multibar.create(100, 0, { url: shortUrl });
     bars.set(url, bar);
 
-    const dl = new Downloader({
-      url,
-      output: fileAnswer.output,
-      resume: true,
-    }, config);
+    const isVideo = isVideoUrl(url);
+    const site = detectVideoSite(url);
 
-    dl.on('progress', (t) => {
-      bar.update(t.progress);
-    });
+    if (isVideo) {
+      const yt = new YouTubeDownloader();
+      
+      yt.on('progress', (p: { progress: number }) => {
+        bar.update(p.progress);
+      });
 
-    try {
-      await dl.start();
-      completed++;
-      bar.update(100, { url: chalk.green('✓ ' + shortUrl) });
-    } catch {
-      failed++;
-      bar.update(0, { url: chalk.red('✗ ' + shortUrl) });
+      try {
+        await yt.download({ url, output: fileAnswer.output });
+        completed++;
+        bar.update(100, { url: chalk.green('✓ ' + shortUrl) });
+        
+        const historyId = history.add({
+          url,
+          filename: 'video',
+          output: fileAnswer.output,
+          size: 0,
+          status: DownloadStatus.Completed,
+          site,
+        });
+        history.complete(historyId);
+      } catch {
+        failed++;
+        bar.update(0, { url: chalk.red('✗ ' + shortUrl) });
+        
+        const historyId = history.add({
+          url,
+          filename: 'video',
+          output: fileAnswer.output,
+          size: 0,
+          status: DownloadStatus.Failed,
+          site,
+        });
+        history.fail(historyId, 'Download failed');
+      }
+    } else {
+      const dl = new Downloader({
+        url,
+        output: fileAnswer.output,
+        resume: true,
+      }, config);
+
+      dl.on('progress', (t) => {
+        bar.update(t.progress);
+      });
+
+      try {
+        await dl.start();
+        completed++;
+        bar.update(100, { url: chalk.green('✓ ' + shortUrl) });
+        
+        const historyId = history.add({
+          url,
+          filename: path.basename(dl.getTask().output),
+          output: fileAnswer.output,
+          size: dl.getTask().totalSize,
+          status: DownloadStatus.Completed,
+        });
+        history.complete(historyId);
+      } catch {
+        failed++;
+        bar.update(0, { url: chalk.red('✗ ' + shortUrl) });
+        
+        const historyId = history.add({
+          url,
+          filename: path.basename(dl.getTask().output),
+          output: fileAnswer.output,
+          size: 0,
+          status: DownloadStatus.Failed,
+        });
+        history.fail(historyId, 'Download failed');
+      }
     }
   };
 
@@ -428,6 +712,165 @@ async function batchDownload(): Promise<void> {
   console.log(chalk.green(`  Completed: ${completed}/${urls.length}`));
   if (failed > 0) console.log(chalk.red(`  Failed: ${failed}`));
   console.log();
+
+  await notifier.notifyBatchComplete(completed, failed);
+}
+
+async function scheduleDownload(): Promise<void> {
+  const config = await loadConfig();
+  const scheduler = getScheduler();
+  
+  const answers = await inquirer.prompt([
+    { type: 'input', name: 'url', message: 'Enter URL to schedule:', validate: (u) => u.length > 0 || 'URL required' },
+    { type: 'input', name: 'datetime', message: 'Schedule for (YYYY-MM-DD HH:MM):', default: '' },
+    {
+      type: 'list',
+      name: 'type',
+      message: 'Quick schedule',
+      choices: [
+        { name: 'Specific date/time', value: 'specific' },
+        { name: 'In 1 hour', value: '1h' },
+        { name: 'In 3 hours', value: '3h' },
+        { name: 'Tomorrow at same time', value: 'tomorrow' },
+      ],
+      default: 'specific',
+    },
+    { type: 'input', name: 'output', message: 'Output directory', default: config.defaultOutput },
+  ]);
+
+  let scheduledDate: Date;
+  if (answers.type === '1h') {
+    scheduledDate = new Date(Date.now() + 60 * 60 * 1000);
+  } else if (answers.type === '3h') {
+    scheduledDate = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  } else if (answers.type === 'tomorrow') {
+    scheduledDate = new Date();
+    scheduledDate.setDate(scheduledDate.getDate() + 1);
+  } else if (answers.datetime) {
+    scheduledDate = new Date(answers.datetime);
+  } else {
+    console.log(chalk.red('  Please provide a date/time'));
+    return;
+  }
+
+  if (isNaN(scheduledDate.getTime())) {
+    console.log(chalk.red('  Invalid date/time format'));
+    return;
+  }
+
+  if (scheduledDate <= new Date()) {
+    console.log(chalk.red('  Scheduled time must be in the future'));
+    return;
+  }
+
+  scheduler.addDownload({
+    url: answers.url,
+    output: answers.output,
+    scheduledTime: scheduledDate,
+  });
+
+  console.log();
+  console.log(chalk.green(`  Download scheduled for ${formatDate(scheduledDate)} at ${formatTime(scheduledDate)}`));
+  console.log();
+}
+
+async function showHistory(): Promise<void> {
+  const config = await loadConfig();
+  const history = getHistoryManager(config.maxHistoryItems, config.historyEnabled);
+  
+  await history.load();
+  
+  const entries = history.getRecent(20);
+  
+  if (entries.length === 0) {
+    console.log(chalk.gray('  No download history'));
+    return;
+  }
+
+  printBox('Download History', [
+    ...entries.slice(0, 10).map(e => 
+      `${e.status === 'completed' ? chalk.green('✓') : e.status === 'failed' ? chalk.red('✗') : '○'} ${e.filename.substring(0, 35)} - ${formatDate(new Date(e.startTime))}`
+    ),
+  ]);
+
+  const stats = history.getStats();
+  console.log();
+  console.log(chalk.gray(`  Total: ${stats.total} | Completed: ${stats.completed} | Failed: ${stats.failed}`));
+  console.log(chalk.gray(`  Total downloaded: ${formatBytes(stats.totalSize)}`));
+  console.log();
+}
+
+async function showStats(): Promise<void> {
+  const config = await loadConfig();
+  const history = getHistoryManager(config.maxHistoryItems, config.historyEnabled);
+  const scheduler = getScheduler();
+  
+  await history.load();
+  
+  const stats = history.getStats();
+  const scheduleStats = scheduler.getScheduleStats();
+  const nextScheduled = scheduler.getNextScheduled();
+
+  printBox('Statistics', [
+    `${chalk.white('Total Downloads:')} ${stats.total}`,
+    `${chalk.white('Completed:')} ${chalk.green(stats.completed.toString())}`,
+    `${chalk.white('Failed:')} ${stats.failed > 0 ? chalk.red(stats.failed.toString()) : '0'}`,
+    `${chalk.white('Total Size:')} ${formatBytes(stats.totalSize)}`,
+  ]);
+
+  console.log();
+  console.log(chalk.cyan('  Scheduled Downloads'));
+  console.log(chalk.gray(`  Pending: ${scheduleStats.pending} | Completed: ${scheduleStats.completed} | Failed: ${scheduleStats.failed}`));
+  
+  if (nextScheduled) {
+    console.log(chalk.gray(`  Next: ${formatDate(new Date(nextScheduled.scheduledTime))} at ${formatTime(new Date(nextScheduled.scheduledTime))}`));
+  }
+  console.log();
+}
+
+async function manageCategories(): Promise<void> {
+  const categoryManager = getCategoryManager();
+  const categories = categoryManager.getAll();
+
+  printBox('Categories', [
+    ...categories.map(c => 
+      `${chalk.hex(c.color)('●')} ${c.name} - ${c.patterns.length} patterns - ${c.autoAssign ? chalk.green('Auto') : chalk.gray('Manual')}`
+    ),
+  ]);
+
+  const answer = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'action',
+      message: 'Manage categories',
+      choices: [
+        { name: 'Add category', value: 'add' },
+        { name: 'Reset to defaults', value: 'reset' },
+        { name: 'Back', value: 'back' },
+      ],
+    },
+  ]);
+
+  if (answer.action === 'add') {
+    const newCat = await inquirer.prompt([
+      { type: 'input', name: 'name', message: 'Category name:' },
+      { type: 'input', name: 'color', message: 'Color (hex):', default: '#FFFFFF' },
+      { type: 'input', name: 'patterns', message: 'URL patterns (comma-separated):' },
+    ]);
+    
+    categoryManager.add({
+      name: newCat.name,
+      color: newCat.color,
+      patterns: newCat.patterns.split(',').map((p: string) => p.trim()),
+      outputTemplate: '%(title)s.%(ext)s',
+      autoAssign: true,
+    });
+    
+    console.log(chalk.green('  Category added!'));
+  } else if (answer.action === 'reset') {
+    categoryManager.reset();
+    console.log(chalk.green('  Categories reset to defaults!'));
+  }
 }
 
 async function listPaused(): Promise<void> {
@@ -583,6 +1026,9 @@ async function configureSettings(): Promise<void> {
     `${chalk.white('Speed limit:')} ${config.defaultSpeedLimit ? formatBytes(config.defaultSpeedLimit) + '/s' : 'None'}`,
     `${chalk.white('Proxy:')} ${config.proxy || 'None'}`,
     `${chalk.white('Concurrent:')} ${config.concurrentDownloads}`,
+    `${chalk.white('Notifications:')} ${config.notifications ? chalk.green('On') : chalk.red('Off')}`,
+    `${chalk.white('History:')} ${config.historyEnabled ? chalk.green('On') : chalk.red('Off')}`,
+    `${chalk.white('Max history:')} ${config.maxHistoryItems}`,
   ]);
 
   const answers = await inquirer.prompt([
@@ -616,6 +1062,24 @@ async function configureSettings(): Promise<void> {
       message: 'Max concurrent downloads',
       default: config.concurrentDownloads || 3,
     },
+    {
+      type: 'confirm',
+      name: 'notifications',
+      message: 'Enable desktop notifications',
+      default: config.notifications,
+    },
+    {
+      type: 'confirm',
+      name: 'history',
+      message: 'Enable download history',
+      default: config.historyEnabled,
+    },
+    {
+      type: 'number',
+      name: 'maxHistory',
+      message: 'Max history items',
+      default: config.maxHistoryItems,
+    },
   ]);
 
   await saveConfig({
@@ -624,6 +1088,9 @@ async function configureSettings(): Promise<void> {
     defaultSpeedLimit: answers.limit * 1024,
     proxy: answers.proxy || undefined,
     concurrentDownloads: answers.concurrent,
+    notifications: answers.notifications,
+    historyEnabled: answers.history,
+    maxHistoryItems: answers.maxHistory,
   });
 
   console.log(chalk.green('  Settings saved!'));
@@ -658,6 +1125,78 @@ program
   });
 
 program
+  .command('history')
+  .description('View download history')
+  .action(async () => {
+    printBanner();
+    await showHistory();
+  });
+
+program
+  .command('stats')
+  .description('Show download statistics')
+  .action(async () => {
+    printBanner();
+    await showStats();
+  });
+
+program
+  .command('schedule [url]')
+  .description('Schedule a download')
+  .option('-t, --time <datetime>', 'Schedule time (YYYY-MM-DD HH:MM)')
+  .option('-o, --output <path>', 'Output directory')
+  .action(async (url: string | undefined, options) => {
+    printBanner();
+    if (!url) {
+      await scheduleDownload();
+    } else {
+      const config = await loadConfig();
+      const scheduler = getScheduler();
+      const scheduledDate = options.time ? new Date(options.time) : new Date(Date.now() + 60 * 60 * 1000);
+      
+      scheduler.addDownload({
+        url,
+        output: options.output || config.defaultOutput,
+        scheduledTime: scheduledDate,
+      });
+      
+      console.log(chalk.green(`  Scheduled for ${formatDate(scheduledDate)} at ${formatTime(scheduledDate)}`));
+    }
+  });
+
+program
+  .command('playlist <url>')
+  .description('Download playlist')
+  .option('-o, --output <path>', 'Output directory')
+  .option('-f, --format <type>', 'Format: video, audio, best')
+  .option('--start <n>', 'Start index')
+  .option('--end <n>', 'End index')
+  .option('--shuffle', 'Download in random order')
+  .action(async (url: string, options) => {
+    printBanner();
+    const site = detectVideoSite(url);
+    if (site !== 'other') {
+      await downloadPlaylist(url, {
+        ...options,
+        format: options.format || 'video',
+        'playlist-start': options.start,
+        'playlist-end': options.end,
+        'playlist-shuffle': options.shuffle,
+      }, site);
+    } else {
+      console.log(chalk.red('  URL is not a supported video site'));
+    }
+  });
+
+program
+  .command('categories')
+  .description('Manage download categories')
+  .action(async () => {
+    printBanner();
+    await manageCategories();
+  });
+
+program
   .command('batch <file>')
   .description('Batch download from file')
   .option('-o, --output <path>', 'Output directory')
@@ -684,6 +1223,8 @@ program
     console.log(chalk.cyan(`  Found ${urls.length} URLs`));
     console.log();
 
+    const notifier = getNotificationManager(config.notifications);
+
     const multibar = new cliProgress.MultiBar({
       clearOnComplete: false,
       hideCursor: true,
@@ -693,7 +1234,6 @@ program
       barsize: 20,
     });
 
-    const bars: Map<string, cliProgress.SingleBar> = new Map();
     const queue: string[] = [...urls];
     const concurrent = parseInt(opts.concurrent, 10) || 3;
     let completed = 0;
@@ -707,7 +1247,6 @@ program
       
       const shortUrl = url.substring(0, 25);
       const bar = multibar.create(100, 0, { url: shortUrl });
-      bars.set(url, bar);
 
       const dl = new Downloader({
         url,
@@ -744,6 +1283,8 @@ program
     console.log(chalk.green(`  Completed: ${completed}/${urls.length}`));
     if (failed > 0) console.log(chalk.red(`  Failed: ${failed}`));
     console.log();
+
+    await notifier.notifyBatchComplete(completed, failed);
   });
 
 program
@@ -772,6 +1313,31 @@ program
       } else {
         console.log(chalk.red(`  Not found: ${id}`));
       }
+    }
+  });
+
+program
+  .command('verify <file> <hash>')
+  .description('Verify file checksum')
+  .option('-t, --type <type>', 'Hash type: md5, sha256, sha1', 'sha256')
+  .action(async (file: string, hash: string, options) => {
+    printBanner();
+    const { calculateChecksum } = await import('./utils');
+    
+    if (!(await fs.pathExists(file))) {
+      console.log(chalk.red(`  File not found: ${file}`));
+      return;
+    }
+
+    console.log(chalk.gray(`  Calculating ${options.type} checksum...`));
+    const actual = await calculateChecksum(file, options.type);
+    
+    if (actual.toLowerCase() === hash.toLowerCase()) {
+      console.log(chalk.green('  ✓ Checksum verified!'));
+    } else {
+      console.log(chalk.red('  ✗ Checksum mismatch!'));
+      console.log(chalk.gray(`  Expected: ${hash}`));
+      console.log(chalk.gray(`  Actual:   ${actual}`));
     }
   });
 

@@ -7,6 +7,7 @@ export interface DownloadOptions {
     headers?: Record<string, string>;
     proxy?: string;
     cookies?: string;
+    filename?: string;
 }
 export interface DownloadTask {
     id: string;
@@ -25,6 +26,10 @@ export interface DownloadTask {
     startTime: number;
     endTime?: number;
     error?: string;
+    filename?: string;
+    category?: string;
+    retries?: number;
+    checksum?: ChecksumInfo;
 }
 export declare enum DownloadStatus {
     Pending = "pending",
@@ -33,7 +38,8 @@ export declare enum DownloadStatus {
     Paused = "paused",
     Completed = "completed",
     Failed = "failed",
-    Cancelled = "cancelled"
+    Cancelled = "cancelled",
+    Scheduled = "scheduled"
 }
 export interface ChunkInfo {
     start: number;
@@ -60,6 +66,14 @@ export interface Config {
     tempDir: string;
     proxy?: string;
     concurrentDownloads: number;
+    notifications: boolean;
+    historyEnabled: boolean;
+    maxHistoryItems: number;
+    autoCleanup: boolean;
+    cleanupDays: number;
+    defaultCategory?: string;
+    startMinimized: boolean;
+    clipboardMonitor: boolean;
 }
 export interface VideoQuality {
     formatId: string;
@@ -80,9 +94,20 @@ export interface VideoInfo {
     thumbnail: string;
     description: string;
     uploader: string;
+    uploaderUrl?: string;
     viewCount: number;
     qualities: VideoQuality[];
     audioQualities: VideoQuality[];
+    subtitles?: SubtitleInfo[];
+    isPlaylist?: boolean;
+    playlistCount?: number;
+    playlistIndex?: number;
+}
+export interface SubtitleInfo {
+    lang: string;
+    langCode: string;
+    url?: string;
+    ext: string;
 }
 export interface BatchItem {
     url: string;
@@ -101,3 +126,115 @@ export interface QueueItem {
 }
 export type VideoSite = 'youtube' | 'twitch' | 'vimeo' | 'twitter' | 'tiktok' | 'instagram' | 'facebook' | 'other';
 export declare const VIDEO_SITES: Record<VideoSite, RegExp>;
+export interface PlaylistInfo {
+    title: string;
+    id: string;
+    url: string;
+    channel: string;
+    channelUrl?: string;
+    thumbnail?: string;
+    count: number;
+    videos: PlaylistVideo[];
+}
+export interface PlaylistVideo {
+    index: number;
+    id: string;
+    title: string;
+    url: string;
+    duration: number;
+    thumbnail?: string;
+}
+export interface PlaylistOptions {
+    start?: number;
+    end?: number;
+    reverse?: boolean;
+    shuffle?: boolean;
+    format?: 'video' | 'audio' | 'best';
+    quality?: string;
+    concurrent?: number;
+}
+export interface ScheduledDownload {
+    id: string;
+    url: string;
+    output: string;
+    scheduledTime: Date;
+    format?: string;
+    quality?: string;
+    category?: string;
+    status: 'pending' | 'completed' | 'failed' | 'cancelled';
+    createdAt: Date;
+    completedAt?: Date;
+    error?: string;
+}
+export interface ScheduleRule {
+    id: string;
+    name: string;
+    days: number[];
+    startTime: string;
+    endTime: string;
+    speedLimit: number;
+    enabled: boolean;
+}
+export interface HistoryEntry {
+    id: string;
+    url: string;
+    filename: string;
+    output: string;
+    size: number;
+    duration?: number;
+    status: DownloadStatus;
+    category?: string;
+    site?: VideoSite;
+    startTime: Date;
+    endTime?: Date;
+    error?: string;
+    checksum?: ChecksumInfo;
+}
+export interface ChecksumInfo {
+    type: 'md5' | 'sha256' | 'sha1';
+    expected?: string;
+    actual?: string;
+    verified?: boolean;
+}
+export interface Category {
+    id: string;
+    name: string;
+    color: string;
+    patterns: string[];
+    outputTemplate: string;
+    autoAssign: boolean;
+}
+export interface DownloadList {
+    name: string;
+    createdAt: Date;
+    items: DownloadListItem[];
+}
+export interface DownloadListItem {
+    url: string;
+    output?: string;
+    format?: string;
+    quality?: string;
+}
+export interface StatsData {
+    totalDownloads: number;
+    completedDownloads: number;
+    failedDownloads: number;
+    totalBytes: number;
+    totalDuration: number;
+    averageSpeed: number;
+    byCategory: Record<string, number>;
+    bySite: Record<string, number>;
+}
+export interface ImportExportFormat {
+    version: string;
+    type: 'download-list' | 'history' | 'config';
+    data: DownloadList | HistoryEntry[] | Config;
+    exportedAt: Date;
+}
+export interface ClipboardRule {
+    enabled: boolean;
+    patterns: string[];
+    autoDownload: boolean;
+    output?: string;
+    format?: string;
+}

@@ -52,6 +52,8 @@ class YouTubeDownloader extends events_1.EventEmitter {
         this.downloaded = 0;
         this.total = 0;
         this.cancelled = false;
+        this.currentIndex = 0;
+        this.totalVideos = 0;
         this.ytDlpWrap = new yt_dlp_wrap_1.default(YT_DLP_PATH);
     }
     async ensureYtDlp() {
@@ -64,12 +66,47 @@ class YouTubeDownloader extends events_1.EventEmitter {
     }
     async getVideoInfo(url, proxy) {
         await this.ensureYtDlp();
-        const args = [url, '--dump-single-json', '--no-warnings'];
+        const args = [url, '--dump-single-json', '--no-warnings', '--no-playlist'];
         if (proxy)
             args.push('--proxy', proxy);
         const info = await this.ytDlpWrap.execPromise(args);
         const data = JSON.parse(info);
-        const allFormats = (data.formats || []).filter((f) => {
+        return this.parseVideoInfo(data, false);
+    }
+    async getPlaylistInfo(url, proxy) {
+        await this.ensureYtDlp();
+        const args = [
+            url,
+            '--flat-playlist',
+            '--dump-single-json',
+            '--no-warnings',
+        ];
+        if (proxy)
+            args.push('--proxy', proxy);
+        const info = await this.ytDlpWrap.execPromise(args);
+        const data = JSON.parse(info);
+        const videos = (data.entries || []).map((entry, index) => ({
+            index: index + 1,
+            id: entry.id || '',
+            title: entry.title || 'Unknown',
+            url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
+            duration: entry.duration || 0,
+            thumbnail: entry.thumbnail || '',
+        }));
+        return {
+            title: data.title || 'Unknown Playlist',
+            id: data.id || '',
+            url,
+            channel: data.channel || data.uploader || 'Unknown',
+            channelUrl: data.channel_url || data.uploader_url || '',
+            thumbnail: data.thumbnail || '',
+            count: videos.length,
+            videos,
+        };
+    }
+    parseVideoInfo(data, isPlaylist = false) {
+        const formats = data.formats;
+        const allFormats = (formats || []).filter((f) => {
             const vcodec = f.vcodec;
             const acodec = f.acodec;
             return vcodec !== 'none' || acodec !== 'none';
@@ -117,15 +154,37 @@ class YouTubeDownloader extends events_1.EventEmitter {
             .filter((f) => f.abr && f.abr > 0)
             .sort((a, b) => (b.abr || 0) - (a.abr || 0))
             .slice(0, 5);
+        const subtitles = [];
+        if (data.subtitles) {
+            const subs = data.subtitles;
+            for (const [lang, langData] of Object.entries(subs)) {
+                const formats = langData;
+                for (const fmt of formats) {
+                    if (fmt.ext && fmt.url) {
+                        subtitles.push({
+                            lang: lang,
+                            langCode: lang,
+                            url: fmt.url,
+                            ext: fmt.ext,
+                        });
+                    }
+                }
+            }
+        }
         return {
             title: data.title || 'Unknown',
             duration: data.duration || 0,
             thumbnail: data.thumbnail || '',
             description: (data.description || '').substring(0, 200),
             uploader: data.uploader || 'Unknown',
+            uploaderUrl: data.uploader_url || '',
             viewCount: data.view_count || 0,
             qualities,
             audioQualities: audioFormats,
+            subtitles: subtitles.length > 0 ? subtitles : undefined,
+            isPlaylist,
+            playlistCount: isPlaylist ? (data.playlist_count || 0) : undefined,
+            playlistIndex: data.playlist_index,
         };
     }
     async download(options) {
@@ -139,8 +198,10 @@ class YouTubeDownloader extends events_1.EventEmitter {
             '--no-mtime',
             '--progress',
             '--newline',
-            '--no-playlist',
         ];
+        if (!options.url.includes('playlist')) {
+            args.push('--no-playlist');
+        }
         if (options.proxy) {
             args.push('--proxy', options.proxy);
         }
@@ -185,6 +246,8 @@ class YouTubeDownloader extends events_1.EventEmitter {
                     speed: this.speed,
                     total: this.total,
                     downloaded: this.downloaded,
+                    videoIndex: this.currentIndex,
+                    totalVideos: this.totalVideos,
                 });
             });
             ytProcess.on('ytDlpEvent', (eventType, eventData) => {
@@ -194,7 +257,17 @@ class YouTubeDownloader extends events_1.EventEmitter {
                     const match = eventData.match(/(\d+\.?\d*)%/);
                     if (match) {
                         this.progress = parseFloat(match[1]);
-                        this.emit('progress', { progress: this.progress, speed: this.speed });
+                        this.emit('progress', {
+                            progress: this.progress,
+                            speed: this.speed,
+                            videoIndex: this.currentIndex,
+                            totalVideos: this.totalVideos,
+                        });
+                    }
+                    const indexMatch = eventData.match(/\[download\]\s+(\d+)\/(\d+)\s+items?/);
+                    if (indexMatch) {
+                        this.currentIndex = parseInt(indexMatch[1], 10);
+                        this.totalVideos = parseInt(indexMatch[2], 10);
                     }
                 }
             });
@@ -218,6 +291,194 @@ class YouTubeDownloader extends events_1.EventEmitter {
             });
         });
     }
+    async downloadPlaylist(options) {
+        await this.ensureYtDlp();
+        this.cancelled = false;
+        const outputPath = options.output || process.cwd();
+        const playlistOpts = options.playlist || {};
+        const args = [
+            options.url,
+            '-o', path.join(outputPath, '%(playlist_title)s', '%(title)s.%(ext)s'),
+            '--no-mtime',
+            '--progress',
+            '--newline',
+        ];
+        if (playlistOpts.start) {
+            args.push('--playlist-start', String(playlistOpts.start));
+        }
+        if (playlistOpts.end) {
+            args.push('--playlist-end', String(playlistOpts.end));
+        }
+        if (playlistOpts.reverse) {
+            args.push('--playlist-reverse');
+        }
+        if (playlistOpts.shuffle) {
+            args.push('--playlist-random');
+        }
+        if (options.proxy) {
+            args.push('--proxy', options.proxy);
+        }
+        if (options.cookies) {
+            args.push('--cookies', options.cookies);
+        }
+        if (options.formatId) {
+            if (options.formatId.includes('+')) {
+                args.push('-f', options.formatId);
+            }
+            else {
+                args.push('-f', `${options.formatId}+bestaudio/best`);
+            }
+        }
+        else if (options.format === 'audio') {
+            args.push('-f', 'bestaudio/best');
+            args.push('-x');
+            args.push('--audio-format', 'mp3');
+        }
+        else if (options.quality) {
+            args.push('-f', options.quality);
+        }
+        else {
+            args.push('-f', 'bestvideo+bestaudio/best');
+        }
+        if (options.format === 'video') {
+            args.push('--merge-output-format', 'mp4');
+        }
+        let success = 0;
+        let failed = 0;
+        return new Promise((resolve, reject) => {
+            const ytProcess = this.ytDlpWrap.exec(args);
+            ytProcess.on('progress', (progressData) => {
+                if (this.cancelled)
+                    return;
+                const p = progressData;
+                this.progress = p.percent || 0;
+                this.speed = p.currentSpeed || 0;
+                this.emit('progress', {
+                    progress: this.progress,
+                    speed: this.speed,
+                    videoIndex: this.currentIndex,
+                    totalVideos: this.totalVideos,
+                });
+            });
+            ytProcess.on('ytDlpEvent', (eventType, eventData) => {
+                if (this.cancelled)
+                    return;
+                const indexMatch = eventData.match(/\[download\]\s+Downloading item (\d+) of (\d+)/);
+                if (indexMatch) {
+                    this.currentIndex = parseInt(indexMatch[1], 10);
+                    this.totalVideos = parseInt(indexMatch[2], 10);
+                }
+                const finishedMatch = eventData.match(/\[download\]\s+Finished downloading playlist/);
+                if (finishedMatch) {
+                    success = this.totalVideos;
+                }
+                if (eventType === 'download') {
+                    const match = eventData.match(/(\d+\.?\d*)%/);
+                    if (match) {
+                        this.progress = parseFloat(match[1]);
+                        this.emit('progress', {
+                            progress: this.progress,
+                            speed: this.speed,
+                            videoIndex: this.currentIndex,
+                            totalVideos: this.totalVideos,
+                        });
+                    }
+                }
+            });
+            ytProcess.on('close', (code) => {
+                if (this.cancelled) {
+                    reject(new Error('Download cancelled'));
+                    return;
+                }
+                if (code === 0) {
+                    this.emit('complete', { success, failed });
+                    resolve({ success: success || this.totalVideos, failed, outputPath });
+                }
+                else {
+                    reject(new Error(`yt-dlp exited with code ${code}`));
+                }
+            });
+            ytProcess.on('error', (err) => {
+                if (!this.cancelled) {
+                    reject(err);
+                }
+            });
+        });
+    }
+    async downloadWithSubtitles(options, subtitleLang = 'en') {
+        await this.ensureYtDlp();
+        this.cancelled = false;
+        const outputPath = options.output || process.cwd();
+        const outputTemplate = path.join(outputPath, '%(title)s.%(ext)s');
+        const args = [
+            options.url,
+            '-o', outputTemplate,
+            '--no-mtime',
+            '--write-subs',
+            '--write-auto-subs',
+            '--sub-lang', subtitleLang,
+            '--convert-subs', 'srt',
+            '--progress',
+            '--newline',
+        ];
+        if (options.proxy) {
+            args.push('--proxy', options.proxy);
+        }
+        if (options.cookies) {
+            args.push('--cookies', options.cookies);
+        }
+        if (options.format === 'audio') {
+            args.push('-x', '--audio-format', 'mp3');
+        }
+        else {
+            args.push('-f', 'bestvideo+bestaudio/best');
+            args.push('--merge-output-format', 'mp4');
+        }
+        return new Promise((resolve, reject) => {
+            const ytProcess = this.ytDlpWrap.exec(args);
+            ytProcess.on('progress', (progressData) => {
+                if (this.cancelled)
+                    return;
+                const p = progressData;
+                this.progress = p.percent || 0;
+                this.speed = p.currentSpeed || 0;
+                this.emit('progress', { progress: this.progress, speed: this.speed });
+            });
+            ytProcess.on('close', (code) => {
+                if (this.cancelled) {
+                    reject(new Error('Download cancelled'));
+                    return;
+                }
+                if (code === 0) {
+                    this.emit('complete');
+                    resolve(outputPath);
+                }
+                else {
+                    reject(new Error(`yt-dlp exited with code ${code}`));
+                }
+            });
+            ytProcess.on('error', (err) => {
+                if (!this.cancelled)
+                    reject(err);
+            });
+        });
+    }
+    async downloadMetadata(options) {
+        await this.ensureYtDlp();
+        const outputPath = options.output || process.cwd();
+        const outputTemplate = path.join(outputPath, '%(title)s.info.json');
+        const args = [
+            options.url,
+            '-o', outputTemplate,
+            '--write-info-json',
+            '--no-download',
+        ];
+        if (options.proxy) {
+            args.push('--proxy', options.proxy);
+        }
+        await this.ytDlpWrap.execPromise(args);
+        return outputPath;
+    }
     cancel() {
         this.cancelled = true;
         this.emit('cancelled');
@@ -228,7 +489,12 @@ class YouTubeDownloader extends events_1.EventEmitter {
             speed: this.speed,
             downloaded: this.downloaded,
             total: this.total,
+            videoIndex: this.currentIndex,
+            totalVideos: this.totalVideos,
         };
+    }
+    isPlaylistUrl(url) {
+        return url.includes('playlist') || url.includes('list=');
     }
 }
 exports.YouTubeDownloader = YouTubeDownloader;
