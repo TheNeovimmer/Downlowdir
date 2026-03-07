@@ -43,6 +43,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/inquirer": "^9.0.9",
     "@types/node": "^25.3.0",
+    "shadcn": "^4.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }
